@@ -1,0 +1,3904 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0a0a">
+  <meta name="description" content="同盟战功统计看板：每日导入 CSV 战报，查看同盟成员当日排行、人员变动、周度与累计数据，按门阀分类统计战功、贡献与助攻。">
+  <title>同盟战功统计看板 · 九天揽月楼</title>
+  <style>
+/* ============ 基础 ============ */
+:root {
+  --ink: #0a0a0a;
+  --ink-2: #100d0a;
+  --surface: #1c1712;
+  --surface-2: #241c15;
+  --surface-3: #2c231a;
+  --gold: #c8aa6f;
+  --gold-light: #e9d4a5;
+  --gold-dark: #8c7654;
+  --rice: #e8dcc8;
+  --rice-2: #c9bca6;
+  --muted: #948873;
+  --cinnabar: #c23838;
+  --cinnabar-2: #e0604f;
+  --jade: #5f8f6d;
+  --jade-2: #86b394;
+  --blue: #6f93b8;
+  --line: rgba(200, 170, 111, 0.16);
+  --line-strong: rgba(200, 170, 111, 0.32);
+  --font-ancient: "STKaiti", "KaiTi", "Kaiti SC", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", "SimSun", Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.9);
+  --radius: 4px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  overflow-x: hidden;
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 520px at 82% -8%, rgba(200, 170, 111, 0.075), transparent 62%),
+    radial-gradient(700px 440px at -12% 102%, rgba(194, 56, 56, 0.055), transparent 62%),
+    var(--ink);
+  color: var(--rice);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.012) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.008) 0 1px, transparent 1px 11px);
+}
+a { color: var(--gold-light); text-decoration: none; }
+a:hover { color: var(--gold); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+h1, h2, h3, h4, p { margin: 0; }
+ul { margin: 0; padding: 0; list-style: none; }
+img { max-width: 100%; }
+::selection { background: rgba(200, 170, 111, 0.3); color: #fff; }
+:focus-visible { outline: 2px solid rgba(200, 170, 111, 0.6); outline-offset: 2px; }
+
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
+::-webkit-scrollbar-thumb { background: rgba(200, 170, 111, 0.22); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(200, 170, 111, 0.36); }
+
+.gold-text {
+  background: linear-gradient(180deg, #f4e3bb 0%, #d6b87c 52%, #a98750 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.num, .tabular { font-variant-numeric: tabular-nums; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.tiny { font-size: 11px; }
+.gold { color: var(--gold); }
+.cinnabar { color: var(--cinnabar-2); }
+.jade { color: var(--jade-2); }
+.right { text-align: right; }
+.center { text-align: center; }
+.nowrap { white-space: nowrap; }
+.hide { display: none !important; }
+.link { color: var(--gold-light); border-bottom: 1px solid rgba(200, 170, 111, 0.3); }
+.link:hover { border-color: var(--gold); }
+.divider { height: 1px; background: linear-gradient(90deg, transparent, var(--line-strong), transparent); margin: 14px 0; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row--between { justify-content: space-between; }
+.row--wrap { flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.icon { display: inline-block; vertical-align: -3px; flex: none; }
+
+/* ============ 布局 ============ */
+.app { min-height: 100vh; }
+.sidebar {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: 230px;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px 16px;
+  background: linear-gradient(180deg, rgba(36, 29, 22, 0.96), rgba(12, 10, 8, 0.98));
+  border-right: 1px solid var(--line);
+  z-index: 40;
+}
+.sidebar::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, rgba(233, 212, 165, 0.85), rgba(200, 170, 111, 0.2), transparent);
+}
+.brand { display: flex; align-items: center; gap: 10px; padding: 2px 6px; }
+.brand__mark {
+  width: 38px; height: 38px;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  background: linear-gradient(145deg, #f0dcb0, #c8aa6f 55%, #8c6a36);
+  color: #1b140c;
+  font-family: var(--font-ancient);
+  font-size: 22px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px -6px rgba(200, 170, 111, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.35);
+}
+.brand__name { display: block; font-family: var(--font-ancient); font-size: 19px; letter-spacing: 1px; line-height: 1.2; }
+.brand__sub { display: block; font-size: 10px; letter-spacing: 4px; color: var(--gold-dark); margin-top: 1px; }
+.side-nav { display: flex; flex-direction: column; gap: 3px; margin-top: 20px; }
+.side-link {
+  display: flex; align-items: center; gap: 11px;
+  padding: 10px 12px;
+  border-radius: 3px;
+  border-left: 2px solid transparent;
+  color: var(--muted);
+  font-size: 13.5px;
+  transition: background 0.18s, color 0.18s;
+}
+.side-link:hover { background: rgba(200, 170, 111, 0.06); color: var(--rice); }
+.side-link.is-active {
+  background: rgba(200, 170, 111, 0.12);
+  border-left-color: var(--gold);
+  color: var(--gold-light);
+}
+.side-link .icon { opacity: 0.9; }
+.side-foot { margin-top: auto; }
+.date-card {
+  border: 1px solid var(--line);
+  background: linear-gradient(160deg, rgba(44, 35, 26, 0.6), rgba(18, 15, 12, 0.6));
+  border-radius: var(--radius);
+  padding: 11px 13px;
+}
+.date-card__label { font-family: var(--font-ancient); font-size: 11px; letter-spacing: 3px; color: var(--muted); }
+.date-card__value { font-family: var(--font-ancient); font-size: 17px; color: var(--gold-light); margin-top: 3px; }
+.date-card__sub { font-size: 10px; color: var(--gold-dark); margin-top: 2px; }
+.side-note { margin-top: 10px; font-size: 10px; color: rgba(148, 136, 115, 0.65); text-align: center; letter-spacing: 1px; }
+
+.main { margin-left: 230px; min-width: 0; }
+.view { max-width: 1380px; margin: 0 auto; padding: 26px 28px 46px; }
+.topbar { display: none; }
+.tabbar { display: none; }
+
+/* ============ 页头 ============ */
+.page-head { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 18px; }
+.page-head__main { flex: 1 1 0; min-width: 0; }
+.page-head__icon {
+  width: 42px; height: 42px; flex: none;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: rgba(200, 170, 111, 0.08);
+  color: var(--gold);
+  margin-top: 2px;
+}
+.page-head__title { font-family: var(--font-ancient); font-size: 25px; line-height: 1.25; letter-spacing: 1px; }
+.page-head__sub { color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+.page-head__actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.page-head__meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.back-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.back-link:hover { color: var(--gold); }
+
+/* ============ 卡片 ============ */
+.card {
+  position: relative;
+  background: linear-gradient(158deg, rgba(40, 32, 24, 0.82), rgba(20, 16, 13, 0.86));
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+.card--flat { box-shadow: none; background: rgba(22, 18, 14, 0.55); }
+.card--ornate::before, .card--ornate::after {
+  content: "";
+  position: absolute;
+  width: 12px; height: 12px;
+  pointer-events: none;
+  border-color: rgba(200, 170, 111, 0.55);
+  border-style: solid;
+}
+.card--ornate::before { top: 5px; left: 5px; border-width: 1px 0 0 1px; }
+.card--ornate::after { right: 5px; bottom: 5px; border-width: 0 1px 1px 0; }
+.card__head { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; flex-wrap: wrap; }
+.card__icon {
+  width: 26px; height: 26px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  background: rgba(200, 170, 111, 0.13);
+  color: var(--gold);
+}
+.card__icon--jade { background: rgba(95, 143, 109, 0.16); color: var(--jade-2); }
+.card__icon--red { background: rgba(194, 56, 56, 0.14); color: var(--cinnabar-2); }
+.card__icon--blue { background: rgba(111, 147, 184, 0.15); color: var(--blue); }
+.card__title { font-family: var(--font-ancient); font-size: 15.5px; color: var(--gold); letter-spacing: 0.5px; }
+.card__sub { font-size: 11px; color: var(--muted); }
+.card__actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.card__body { min-width: 0; }
+.card__foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(200, 170, 111, 0.1); }
+
+/* ============ 按钮 / 表单 ============ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 3px;
+  border: 1px solid var(--line-strong);
+  background: rgba(200, 170, 111, 0.04);
+  color: var(--gold-light);
+  font-size: 13px;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background 0.16s, border-color 0.16s, color 0.16s, transform 0.16s;
+}
+.btn:hover { background: rgba(200, 170, 111, 0.1); border-color: rgba(200, 170, 111, 0.5); color: #fff2d8; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+.btn--gold {
+  background: linear-gradient(140deg, #efd9a9, #c8aa6f 55%, #a27f45);
+  border-color: rgba(240, 220, 176, 0.65);
+  color: #1a130b;
+  font-weight: 600;
+  box-shadow: 0 8px 20px -12px rgba(200, 170, 111, 0.7);
+}
+.btn--gold:hover { background: linear-gradient(140deg, #f7e5bc, #d5b87f 55%, #b08a4e); color: #150f08; }
+.btn--danger { border-color: rgba(194, 56, 56, 0.5); color: var(--cinnabar-2); background: rgba(194, 56, 56, 0.06); }
+.btn--danger:hover { background: rgba(194, 56, 56, 0.14); border-color: var(--cinnabar); color: #ffd9d0; }
+.btn--ghost { border-color: var(--line); color: var(--rice-2); background: transparent; }
+.btn--ghost:hover { color: var(--gold-light); }
+.btn--sm { min-height: 30px; padding: 0 10px; font-size: 12px; }
+.btn--xs { min-height: 26px; padding: 0 8px; font-size: 11px; }
+.btn--block { width: 100%; }
+.icon-btn {
+  width: 36px; height: 36px;
+  display: inline-grid; place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--gold-light);
+}
+.icon-btn:hover { background: rgba(200, 170, 111, 0.1); border-color: var(--line-strong); }
+.field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.field__label { font-size: 11px; color: var(--muted); letter-spacing: 0.4px; }
+.field__hint { font-size: 11px; color: var(--gold-dark); }
+.field__error { font-size: 11px; color: var(--cinnabar-2); }
+.input, .select, .textarea {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px;
+  background: rgba(8, 7, 6, 0.62);
+  border: 1px solid rgba(200, 170, 111, 0.24);
+  border-radius: 3px;
+  color: var(--rice);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.16s, box-shadow 0.16s;
+}
+.textarea { height: auto; min-height: 80px; padding: 9px 11px; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(200, 170, 111, 0.1); }
+.input::placeholder, .textarea::placeholder { color: #6f6656; }
+.select { appearance: none; background-image: linear-gradient(45deg, transparent 50%, #b7a077 50%), linear-gradient(135deg, #b7a077 50%, transparent 50%); background-position: calc(100% - 15px) 17px, calc(100% - 10px) 17px; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; padding-right: 28px; }
+.search-wrap { position: relative; }
+.search-wrap .icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--gold-dark); pointer-events: none; }
+.search-wrap .input { padding-left: 34px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.form-grid .span-2 { grid-column: 1 / -1; }
+.check { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--rice-2); }
+.check input { accent-color: #c8aa6f; }
+.range-row { display: flex; align-items: center; gap: 12px; }
+.range-row input[type="range"] { flex: 1; accent-color: #c8aa6f; }
+.range-row .input { width: 74px; text-align: center; }
+
+/* ============ 顶部提示 / 徽标 ============ */
+.notice {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(200, 170, 111, 0.06);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.notice__icon { color: var(--gold); margin-top: 2px; flex: none; }
+.notice--jade { border-color: rgba(95, 143, 109, 0.35); background: rgba(95, 143, 109, 0.08); }
+.notice--jade .notice__icon { color: var(--jade-2); }
+.notice--blue { border-color: rgba(111, 147, 184, 0.35); background: rgba(111, 147, 184, 0.08); }
+.notice--blue .notice__icon { color: var(--blue); }
+.notice--red { border-color: rgba(194, 56, 56, 0.4); background: rgba(194, 56, 56, 0.08); }
+.notice--red .notice__icon { color: var(--cinnabar-2); }
+.notice__action { margin-left: auto; flex: none; }
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid rgba(200, 170, 111, 0.3);
+  border-radius: 2px;
+  background: rgba(200, 170, 111, 0.08);
+  color: var(--gold-light);
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.badge--sm { height: 18px; padding: 0 5px; font-size: 9.5px; }
+.badge--jade { border-color: rgba(95, 143, 109, 0.45); background: rgba(95, 143, 109, 0.11); color: var(--jade-2); }
+.badge--blue { border-color: rgba(111, 147, 184, 0.45); background: rgba(111, 147, 184, 0.11); color: #a9c6e2; }
+.badge--gold { border-color: rgba(200, 170, 111, 0.45); background: rgba(200, 170, 111, 0.1); color: var(--gold-light); }
+.badge--red { border-color: rgba(194, 56, 56, 0.45); background: rgba(194, 56, 56, 0.1); color: #e79c8e; }
+.badge--muted { border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.03); color: var(--muted); }
+.tag {
+  display: inline-flex; align-items: center;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(200, 170, 111, 0.22);
+  background: rgba(200, 170, 111, 0.07);
+  color: var(--rice-2);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tag--clan { border-color: rgba(139, 168, 201, 0.25); background: rgba(139, 168, 201, 0.09); color: #b9cde3; }
+.seal {
+  display: inline-grid; place-items: center;
+  width: 24px; height: 24px;
+  border: 1px solid rgba(194, 56, 56, 0.6);
+  color: #d06a5a;
+  font-family: var(--font-ancient);
+  font-size: 12px;
+  border-radius: 2px;
+  transform: rotate(-4deg);
+  opacity: 0.9;
+}
+
+/* ============ 指标卡 ============ */
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.metrics--six { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.metric {
+  position: relative;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(158deg, rgba(42, 34, 25, 0.8), rgba(19, 16, 12, 0.86));
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.metric::after {
+  content: "";
+  position: absolute;
+  right: -28px; bottom: -38px;
+  width: 100px; height: 100px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 170, 111, 0.09), transparent 68%);
+  pointer-events: none;
+}
+.metric__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.metric__label { font-size: 11.5px; color: var(--muted); letter-spacing: 0.4px; }
+.metric__icon {
+  width: 26px; height: 26px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 3px;
+  background: rgba(200, 170, 111, 0.12);
+  color: var(--gold);
+}
+.metric__value { font-family: var(--font-ancient); font-size: 25px; line-height: 1.2; margin-top: 8px; color: var(--gold-light); letter-spacing: 0.5px; }
+.metric__value small { font-size: 12px; color: var(--muted); margin-left: 3px; font-family: var(--font-sans); }
+.metric__foot { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 8px; min-height: 20px; }
+.metric__sub { font-size: 10.5px; color: var(--muted); }
+.metric__spark { position: absolute; right: 12px; bottom: 10px; opacity: 0.8; }
+.metric__badge { position: absolute; right: 12px; top: 44px; }
+.delta { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); }
+.delta b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.delta em { font-style: normal; color: var(--muted); font-size: 10px; }
+.delta--up b, .delta--up .icon { color: var(--jade-2); }
+.delta--down b, .delta--down .icon { color: var(--cinnabar-2); }
+.delta--flat { color: var(--gold-dark); }
+
+/* ============ 栅格 ============ */
+.grid { display: grid; gap: 14px; }
+.grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.col-span-2 { grid-column: span 2; }
+.stack-gap { display: flex; flex-direction: column; gap: 14px; }
+
+/* ============ 图表 ============ */
+.chart { position: relative; width: 100%; min-width: 0; }
+.chart-svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.chart-grid { stroke: rgba(200, 170, 111, 0.1); stroke-width: 1; }
+.chart-axis { fill: #8f846f; font-size: 10px; font-family: var(--font-sans); }
+.chart-value { fill: #b9a57f; font-size: 9.5px; font-family: var(--font-sans); }
+.chart-dot { stroke: rgba(10, 10, 10, 0.7); stroke-width: 1; }
+.chart-guide { opacity: 0; transition: opacity 0.12s; }
+.chart-tip {
+  position: absolute;
+  z-index: 4;
+  display: flex; flex-direction: column; gap: 1px;
+  padding: 6px 9px;
+  border: 1px solid rgba(200, 170, 111, 0.35);
+  border-radius: 3px;
+  background: rgba(16, 13, 10, 0.96);
+  color: var(--rice);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  box-shadow: 0 8px 22px -12px #000;
+  white-space: nowrap;
+}
+.chart-tip .tip-label { color: var(--muted); font-size: 10px; }
+.chart-tip .tip-value { color: var(--gold-light); font-family: var(--font-ancient); font-size: 13px; }
+.chart-tip .tip-name { color: var(--gold-dark); font-size: 10px; }
+.chart-empty { height: 180px; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+.chart-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.chart-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.hbars { display: flex; flex-direction: column; gap: 11px; }
+.hbar__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.hbar__label { font-size: 12px; color: var(--rice-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hbar__value { font-family: var(--font-ancient); color: var(--gold-light); font-size: 14px; white-space: nowrap; }
+.hbar__value small { font-family: var(--font-sans); font-size: 10px; color: var(--muted); margin-left: 2px; }
+.hbar__track { height: 5px; border-radius: 3px; background: rgba(200, 170, 111, 0.09); overflow: hidden; }
+.hbar__fill { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #8c7654, #d8bc83); }
+.spark { display: block; }
+
+/* ============ 表格 ============ */
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(16, 13, 10, 0.5); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th {
+  padding: 10px 14px;
+  text-align: left;
+  font-family: var(--font-ancient);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  background: rgba(28, 23, 18, 0.9);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.data-table td { padding: 11px 14px; border-bottom: 1px solid rgba(200, 170, 111, 0.08); vertical-align: middle; }
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tbody tr { transition: background 0.15s; }
+.data-table tbody tr:hover { background: rgba(200, 170, 111, 0.045); }
+.data-table .num { text-align: right; font-family: var(--font-ancient); color: var(--gold-light); font-size: 14px; }
+.data-table .num--muted { color: var(--rice-2); font-family: var(--font-sans); font-size: 12px; }
+.data-table .cell-main { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.data-table .cell-sub { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.table-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+.pager { display: flex; align-items: center; gap: 6px; }
+.pager__btn { min-width: 30px; height: 30px; display: inline-grid; place-items: center; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: var(--gold); }
+.pager__btn:disabled { opacity: 0.35; }
+.pager__info { font-size: 11.5px; color: var(--muted); }
+.pager__info b { color: var(--gold-light); font-family: var(--font-ancient); }
+
+/* ============ 筛选 / 分段 ============ */
+.filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.filters .field { width: 140px; }
+.filters .field--grow { flex: 1; min-width: 180px; width: auto; }
+.seg { display: flex; flex-wrap: wrap; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 3px; background: rgba(12, 10, 8, 0.35); }
+.seg__btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.seg__btn:hover { color: var(--rice); background: rgba(200, 170, 111, 0.06); }
+.seg__btn.is-active { background: rgba(200, 170, 111, 0.16); color: var(--gold-light); }
+.seg--scroll { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+.seg--scroll::-webkit-scrollbar { display: none; }
+.seg--plain { border: 0; padding: 0; gap: 4px; background: transparent; }
+.seg--plain .seg__btn { border: 1px solid transparent; }
+.seg--plain .seg__btn.is-active { border-color: var(--line-strong); background: rgba(200, 170, 111, 0.1); }
+
+/* ============ 排行卡片 / 列表 ============ */
+.rank-list { display: flex; flex-direction: column; gap: 8px; }
+.rank-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: rgba(28, 23, 18, 0.55);
+  transition: background 0.15s, border-color 0.15s;
+}
+.rank-card:hover { background: rgba(200, 170, 111, 0.055); border-color: var(--line-strong); }
+.rank-card__main { min-width: 0; flex: 1; }
+.rank-card__name { font-size: 14px; color: var(--rice); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rank-card__meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.rank-card__value { text-align: right; flex: none; }
+.rank-card__value b { display: block; font-family: var(--font-ancient); font-size: 18px; color: var(--gold-light); font-weight: 500; }
+.rank-card__value span { display: block; font-size: 10px; color: var(--muted); margin-top: 1px; }
+.medal {
+  width: 28px; height: 28px; flex: none;
+  display: inline-grid; place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--font-ancient);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.medal--sm { width: 22px; height: 22px; font-size: 11px; }
+.medal.is-gold { background: linear-gradient(145deg, #f4dfae, #c9a45f 55%, #8a6528); color: #2a1c08; border-color: rgba(255, 235, 190, 0.6); box-shadow: 0 0 12px rgba(200, 170, 111, 0.35); }
+.medal.is-silver { background: linear-gradient(145deg, #e4e4e4, #9fa3a8 60%, #6c7076); color: #24262a; border-color: rgba(240, 240, 240, 0.5); }
+.medal.is-bronze { background: linear-gradient(145deg, #d7a06a, #a25f2c 65%, #6f3c18); color: #f7e2cd; border-color: rgba(220, 160, 110, 0.5); }
+
+.mini-list { display: flex; flex-direction: column; gap: 2px; }
+.mini-row { display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 3px; }
+.mini-row:hover { background: rgba(200, 170, 111, 0.05); }
+.mini-row__rank { width: 20px; flex: none; text-align: center; font-family: var(--font-ancient); font-size: 13px; color: var(--muted); }
+.mini-row__main { min-width: 0; flex: 1; }
+.mini-row__name { font-size: 12.5px; color: var(--rice); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-row__sub { font-size: 10.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-row__value { flex: none; font-family: var(--font-ancient); font-size: 13px; color: var(--cinnabar-2); font-variant-numeric: tabular-nums; }
+.mini-row__value--muted { color: var(--muted); font-family: var(--font-sans); font-size: 11px; }
+.list-scroll { max-height: 300px; overflow-y: auto; padding-right: 2px; }
+
+/* ============ 门阀卡 ============ */
+.clan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.clan-card { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: linear-gradient(158deg, rgba(40, 32, 24, 0.75), rgba(20, 16, 13, 0.8)); transition: border-color 0.16s, background 0.16s; }
+.clan-card:hover { border-color: var(--line-strong); background: rgba(200, 170, 111, 0.05); }
+.clan-card__head { display: flex; align-items: center; gap: 10px; }
+.clan-card__title { min-width: 0; flex: 1; }
+.clan-card__name { font-family: var(--font-ancient); font-size: 17px; color: var(--gold); letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clan-card__meta { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.clan-card__value { text-align: right; flex: none; }
+.clan-card__value b { display: block; font-family: var(--font-ancient); font-size: 20px; color: var(--gold-light); font-weight: 500; }
+.clan-card__value span { font-size: 10px; color: var(--muted); }
+.clan-card__stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 11px; }
+.clan-card__stat { padding: 6px 4px; text-align: center; border: 1px solid rgba(200, 170, 111, 0.1); border-radius: 2px; background: rgba(9, 8, 6, 0.35); }
+.clan-card__stat em { display: block; font-style: normal; font-size: 9.5px; color: var(--muted); }
+.clan-card__stat b { display: block; margin-top: 1px; font-family: var(--font-ancient); font-size: 13px; color: var(--rice); font-weight: 500; }
+.clan-card__bar { margin-top: 10px; }
+.clan-card__bar-head { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--muted); margin-bottom: 4px; }
+.clan-card__bar-head b { color: var(--cinnabar-2); font-family: var(--font-ancient); font-size: 12px; }
+.progress { height: 4px; border-radius: 2px; background: rgba(200, 170, 111, 0.1); overflow: hidden; }
+.progress span { display: block; height: 100%; border-radius: 2px; background: linear-gradient(90deg, #8c3a2f, #c23838); }
+.clan-card__foot { display: flex; justify-content: flex-end; margin-top: 9px; }
+
+/* ============ 人员变动 ============ */
+.change-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.change-box { padding: 9px 6px; text-align: center; border: 1px solid rgba(200, 170, 111, 0.12); border-radius: 3px; background: rgba(8, 7, 6, 0.3); }
+.change-box__num { font-family: var(--font-ancient); font-size: 20px; line-height: 1.2; }
+.change-box__num--up { color: var(--jade-2); }
+.change-box__num--down { color: var(--cinnabar-2); }
+.change-box__num--move { color: var(--blue); }
+.change-box__label { font-size: 10px; color: var(--muted); margin-top: 2px; }
+.change-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.change-chip { font-size: 10.5px; padding: 2px 7px; border-radius: 20px; border: 1px solid var(--line); color: var(--rice-2); }
+.change-chip--up { border-color: rgba(95, 143, 109, 0.35); color: var(--jade-2); }
+.change-chip--down { border-color: rgba(194, 56, 56, 0.35); color: #df9184; }
+
+/* ============ 空状态 ============ */
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 34px 16px; color: var(--muted); }
+.empty__icon { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 50%; background: rgba(200, 170, 111, 0.08); color: var(--gold-dark); margin-bottom: 10px; }
+.empty__title { color: var(--rice); font-size: 13px; }
+.empty__desc { font-size: 11.5px; margin-top: 4px; line-height: 1.6; max-width: 340px; }
+.empty .btn { margin-top: 12px; }
+
+/* ============ 导入 ============ */
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+  padding: 30px 18px;
+  border: 1.5px dashed rgba(200, 170, 111, 0.32);
+  border-radius: var(--radius);
+  background: rgba(200, 170, 111, 0.025);
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s;
+}
+.dropzone:hover, .dropzone.is-drag { border-color: var(--gold); background: rgba(200, 170, 111, 0.07); }
+.dropzone__icon { color: var(--gold-dark); margin-bottom: 9px; }
+.dropzone__title { font-family: var(--font-ancient); font-size: 16px; color: var(--gold-light); }
+.dropzone__desc { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+.dropzone__hint { font-size: 10.5px; color: var(--gold-dark); margin-top: 9px; letter-spacing: 1px; }
+.preview__stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 12px 0; }
+.preview__stat { padding: 9px 6px; text-align: center; border: 1px solid var(--line); border-radius: 3px; background: rgba(8, 7, 6, 0.3); }
+.preview__stat em { display: block; font-style: normal; font-size: 10px; color: var(--muted); }
+.preview__stat b { display: block; margin-top: 2px; font-family: var(--font-ancient); font-size: 19px; color: var(--gold-light); font-weight: 500; }
+.preview__row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 12px; padding: 5px 0; border-bottom: 1px solid rgba(200, 170, 111, 0.07); }
+.preview__row:last-child { border-bottom: 0; }
+.preview__row span:first-child { color: var(--muted); min-width: 62px; flex: none; }
+.preview__row span:last-child { color: var(--rice); min-width: 0; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-size: 10.5px; padding: 2px 8px; border-radius: 20px; border: 1px solid var(--line); color: var(--gold); background: rgba(200, 170, 111, 0.06); }
+.import-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.import-side { display: flex; flex-direction: column; gap: 14px; }
+.log-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+.log-item { padding: 9px 10px; border: 1px solid var(--line); border-radius: 3px; background: rgba(8, 7, 6, 0.25); }
+.log-item__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.log-item__date { font-family: var(--font-ancient); color: var(--gold); font-size: 13px; }
+.log-item__name { font-size: 11.5px; color: var(--rice-2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-item__meta { display: flex; gap: 10px; margin-top: 4px; font-size: 10px; color: var(--muted); }
+.help-list { display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; color: var(--muted); line-height: 1.65; }
+.help-list b { color: var(--rice); font-weight: 500; }
+.help-list .dot { color: var(--gold); margin-right: 5px; }
+
+/* ============ 铜矿 ============ */
+.level-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 9px; }
+.level-option { position: relative; }
+.level-option input { position: absolute; opacity: 0; pointer-events: none; }
+.level-option label {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: rgba(8, 7, 6, 0.3);
+  cursor: pointer;
+  transition: border-color 0.16s, background 0.16s;
+}
+.level-option label b { font-family: var(--font-ancient); font-size: 16px; color: var(--rice); font-weight: 500; }
+.level-option label span { font-size: 10.5px; color: var(--muted); }
+.level-option input:checked + label { border-color: var(--gold); background: rgba(200, 170, 111, 0.1); box-shadow: inset 0 0 0 1px rgba(200, 170, 111, 0.25); }
+.level-option input:checked + label b { color: var(--gold-light); }
+.balance { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.balance__item { padding: 9px 10px; border: 1px solid rgba(200, 170, 111, 0.12); border-radius: 3px; background: rgba(8, 7, 6, 0.3); }
+.balance__item em { display: block; font-style: normal; font-size: 10px; color: var(--muted); }
+.balance__item b { display: block; margin-top: 2px; font-family: var(--font-ancient); font-size: 16px; color: var(--gold-light); font-weight: 500; }
+.balance__item--wide { grid-column: 1 / -1; }
+.balance__item--wide b { font-size: 19px; }
+.balance__item--neg b { color: var(--cinnabar-2); }
+.rule-list { display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--muted); }
+.rule-list .row { align-items: flex-start; gap: 7px; }
+.rule-list .icon { color: var(--gold-dark); margin-top: 2px; }
+.rule-list b { color: var(--gold-light); font-family: var(--font-ancient); font-size: 14px; font-weight: 500; }
+
+/* ============ 管理中心 ============ */
+.admin-tabs { margin-bottom: 16px; }
+.weight-row { display: grid; grid-template-columns: 70px 1fr 74px; align-items: center; gap: 12px; }
+.weight-row label { font-size: 12px; color: var(--rice-2); }
+.weight-row .input { height: 34px; text-align: center; }
+.weight-row input[type="range"] { width: 100%; accent-color: #c8aa6f; }
+.weight-sum { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.weight-sum b { font-family: var(--font-ancient); font-size: 16px; color: var(--gold-light); }
+.weight-sum.is-bad b { color: var(--cinnabar-2); }
+.data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.kv { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid rgba(200, 170, 111, 0.08); font-size: 12px; }
+.kv:last-child { border-bottom: 0; }
+.kv span:first-child { color: var(--muted); }
+.kv span:last-child { color: var(--rice); }
+
+/* ============ 弹窗 / 提示 ============ */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px;
+  background: rgba(4, 3, 2, 0.72);
+  backdrop-filter: blur(4px);
+  opacity: 0;
+  transition: opacity 0.16s;
+}
+.modal-backdrop.is-in { opacity: 1; }
+.modal {
+  width: 100%; max-width: 480px;
+  max-height: 86vh;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: linear-gradient(160deg, #241c15, #120f0c);
+  box-shadow: 0 30px 80px -30px #000;
+  transform: translateY(8px) scale(0.99);
+  transition: transform 0.16s;
+}
+.modal-backdrop.is-in .modal { transform: none; }
+.modal--wide { max-width: 620px; }
+.modal__head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.modal__head h3 { font-family: var(--font-ancient); font-size: 17px; color: var(--gold); font-weight: 500; flex: 1; }
+.modal__close { width: 30px; height: 30px; }
+.modal__body { padding: 16px; overflow-y: auto; font-size: 13px; }
+.modal__text { color: var(--rice-2); line-height: 1.7; }
+.modal__foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.modal .change-list { margin-top: 4px; }
+.toast-root { position: fixed; left: 50%; top: 18px; transform: translateX(-50%); z-index: 120; display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: min(92vw, 420px); }
+.toast {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: rgba(24, 19, 15, 0.98);
+  color: var(--rice);
+  font-size: 12.5px;
+  box-shadow: 0 14px 38px -18px #000;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.18s, transform 0.18s;
+}
+.toast.is-in { opacity: 1; transform: none; }
+.toast__icon { color: var(--gold); margin-top: 1px; flex: none; }
+.toast--success .toast__icon { color: var(--jade-2); }
+.toast--error .toast__icon { color: var(--cinnabar-2); }
+
+/* ============ 页脚 ============ */
+.page-foot { margin-top: 26px; text-align: center; font-size: 10.5px; color: rgba(148, 136, 115, 0.55); letter-spacing: 1px; }
+.page-foot .seal { vertical-align: -6px; margin-right: 6px; }
+
+/* ============ 动效 ============ */
+.view > * { animation: fadeUp 0.32s ease both; }
+.view > *:nth-child(2) { animation-delay: 0.03s; }
+.view > *:nth-child(3) { animation-delay: 0.06s; }
+.view > *:nth-child(4) { animation-delay: 0.09s; }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+/* ============ 响应式 ============ */
+@media (max-width: 1180px) {
+  .metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .clan-grid { grid-template-columns: 1fr; }
+  .import-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 960px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .view { padding: 14px 14px 88px; max-width: none; }
+  .topbar {
+    position: sticky; top: 0; z-index: 45;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    height: calc(54px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 14px 0;
+    background: rgba(18, 15, 12, 0.94);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(8px);
+  }
+  .topbar .brand { padding: 0; gap: 8px; }
+  .topbar .brand__mark { width: 30px; height: 30px; font-size: 18px; border-radius: 2px; }
+  .topbar .brand__name { font-size: 16px; }
+  .topbar .brand__sub { font-size: 9px; letter-spacing: 3px; }
+  .topbar__actions { display: flex; align-items: center; gap: 7px; }
+  .date-chip { font-size: 10.5px; color: var(--gold-light); border: 1px solid var(--line); border-radius: 2px; padding: 4px 7px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    display: flex;
+    border-top: 1px solid var(--line);
+    background: rgba(18, 15, 12, 0.96);
+    backdrop-filter: blur(8px);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .tab {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    padding: 7px 2px 6px;
+    color: var(--muted);
+    font-size: 9.5px;
+    white-space: nowrap;
+  }
+  .tab.is-active { color: var(--gold); }
+  .tab .icon { opacity: 0.9; }
+  .tab.is-active .icon { filter: drop-shadow(0 0 6px rgba(200, 170, 111, 0.35)); }
+  .page-head { margin-bottom: 14px; gap: 10px; flex-wrap: wrap; }
+  .page-head__actions { flex: 0 0 100%; margin-left: 0; width: 100%; justify-content: flex-end; margin-top: 2px; }
+  .page-head__actions .date-field { flex: 1; width: auto; min-width: 128px; max-width: none; }
+  .page-head__icon { width: 36px; height: 36px; }
+  .page-head__title { font-size: 21px; }
+  .page-head__sub { font-size: 11.5px; }
+  .page-head__actions { gap: 6px; }
+  .page-head__actions .btn { min-height: 34px; padding: 0 10px; font-size: 12px; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+  .metric { padding: 11px; }
+  .metric__value { font-size: 21px; }
+  .metric__spark { display: none; }
+  .grid--2, .grid--3, .grid--4 { grid-template-columns: 1fr; }
+  .col-span-2 { grid-column: span 1; }
+  .card { padding: 13px; }
+  .card__title { font-size: 14.5px; }
+  .filters { gap: 9px; }
+  .filters .field { width: calc(50% - 5px); }
+  .filters .field--grow { width: 100%; }
+  .filters .field:last-child { width: 100%; }
+  .toast-root { top: 62px; }
+  .table-desktop { display: none; }
+  .table-wrap { border: 0; background: transparent; }
+  .data-table { min-width: 620px; }
+  .rank-card { padding: 10px 11px; }
+  .clan-card__value b { font-size: 18px; }
+  .import-layout { gap: 12px; }
+  .weight-row { grid-template-columns: 58px 1fr 62px; gap: 8px; }
+  .change-grid { gap: 6px; }
+  .change-box__num { font-size: 18px; }
+  .page-head__actions .btn--gold { min-width: 34px; }
+}
+@media (max-width: 560px) {
+  .page-head__actions .btn--ghost { width: 34px; padding: 0; }
+  .page-head__actions .btn--ghost span { display: none; }
+  .page-head__actions .btn--gold { min-width: 64px; }
+  .preview__stats { grid-template-columns: repeat(3, 1fr); }
+  .form-grid { grid-template-columns: 1fr; }
+  .form-grid .span-2 { grid-column: auto; }
+  .balance { grid-template-columns: 1fr 1fr; }
+  .seg__btn { padding: 0 8px; font-size: 11.5px; }
+  .seg--scroll { flex-wrap: wrap; overflow: visible; }
+  .seg--grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px; width: 100%; }
+  .seg--grid3 .seg__btn { width: 100%; padding: 0 4px; }
+  .metric__foot { flex-wrap: wrap; }
+  .metric__sub { width: 100%; }
+  .data-table .hide-sm { display: none; }
+}
+
+/* ============ 补充：手机列表 / 欢迎页 / 小标题 ============ */
+.desktop-only { display: block; }
+.mobile-list { display: none; }
+.section-title { font-family: var(--font-ancient); font-size: 13px; color: var(--gold); letter-spacing: 1px; margin: 10px 0 7px; }
+.notice__text { min-width: 0; flex: 1; line-height: 1.6; }
+.notice__text b { color: var(--gold-light); font-weight: 500; }
+.date-field { width: 158px; flex: none; }
+.date-field .select { height: 38px; }
+.welcome-hero { text-align: center; padding: 34px 22px 30px; }
+.welcome-seal {
+  width: 54px; height: 54px;
+  margin: 0 auto 14px;
+  display: grid; place-items: center;
+  border: 1px solid rgba(194, 56, 56, 0.55);
+  border-radius: 3px;
+  color: #d06a5a;
+  font-family: var(--font-ancient);
+  font-size: 27px;
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 3px rgba(194, 56, 56, 0.08);
+}
+.welcome-hero h2 { font-family: var(--font-ancient); font-size: 26px; letter-spacing: 2px; }
+.welcome-hero p { max-width: 560px; margin: 11px auto 0; color: var(--muted); font-size: 12.5px; line-height: 1.8; }
+.steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.step { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(28, 23, 18, 0.5); }
+.step span { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid rgba(200, 170, 111, 0.3); border-radius: 50%; font-family: var(--font-ancient); color: var(--gold); font-size: 13px; }
+.step h3 { font-family: var(--font-ancient); font-size: 15px; color: var(--gold-light); margin: 9px 0 5px; font-weight: 500; }
+.step p { font-size: 11.5px; color: var(--muted); line-height: 1.7; }
+
+@media (max-width: 960px) {
+  .desktop-only { display: none !important; }
+  .mobile-list { display: flex; flex-direction: column; gap: 8px; }
+  .date-field { width: 132px; }
+  .date-field .field__label { display: none; }
+  .date-field .select { height: 34px; font-size: 11.5px; padding-left: 8px; }
+  .steps { grid-template-columns: 1fr; }
+  .welcome-hero { padding: 26px 16px 24px; }
+  .welcome-hero h2 { font-size: 22px; }
+  .section-title { margin-top: 8px; }
+}
+
+@media (max-width: 560px) {
+  .page-head__actions .btn--text { width: auto; padding: 0 10px; }
+  .page-head__actions .btn--text span { display: inline; }
+}
+
+@media (max-width: 960px) {
+  .toast-root { top: auto; bottom: calc(74px + env(safe-area-inset-bottom)); }
+}
+
+</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="侧边栏">
+      <a class="brand" href="#/dashboard">
+        <span class="brand__mark" aria-hidden="true">楼</span>
+        <span>
+          <span class="brand__name gold-text">九天揽月楼</span>
+          <span class="brand__sub">小 看 板</span>
+        </span>
+      </a>
+      <nav class="side-nav" id="side-nav">
+        <a class="side-link" href="#/dashboard" data-route="/dashboard"><span data-icon="dashboard"></span><span>仪表盘</span></a>
+        <a class="side-link" href="#/ranking" data-route="/ranking"><span data-icon="trophy"></span><span>全盟排行</span></a>
+        <a class="side-link" href="#/clan" data-route="/clan"><span data-icon="shield"></span><span>门阀排行</span></a>
+        <a class="side-link" href="#/copper" data-route="/copper"><span data-icon="gem"></span><span>铜矿报备</span></a>
+        <a class="side-link" href="#/admin" data-route="/admin"><span data-icon="settings"></span><span>管理中心</span></a>
+      </nav>
+      <div class="side-foot">
+        <div class="date-card">
+          <div class="date-card__label">· 数 据 日 期 ·</div>
+          <div class="date-card__value" id="side-date">暂无数据</div>
+          <div class="date-card__sub" id="side-week"></div>
+        </div>
+        <div class="side-note">同 盟 战 功 · 数 据 看 板</div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <header class="topbar">
+        <a class="brand" href="#/dashboard">
+          <span class="brand__mark" aria-hidden="true">楼</span>
+          <span>
+            <span class="brand__name gold-text">九天揽月楼</span>
+            <span class="brand__sub">小 看 板</span>
+          </span>
+        </a>
+        <div class="topbar__actions">
+          <span class="date-chip" id="top-date">--</span>
+          <button class="icon-btn" type="button" data-action="go-import" aria-label="导入战报" title="导入战报"><span data-icon="upload"></span></button>
+        </div>
+      </header>
+
+      <main class="view" id="view" aria-live="polite"></main>
+
+      <nav class="tabbar" aria-label="主导航">
+        <a class="tab" href="#/dashboard" data-route="/dashboard"><span data-icon="dashboard"></span><span>仪表盘</span></a>
+        <a class="tab" href="#/ranking" data-route="/ranking"><span data-icon="trophy"></span><span>全盟排行</span></a>
+        <a class="tab" href="#/clan" data-route="/clan"><span data-icon="shield"></span><span>门阀排行</span></a>
+        <a class="tab" href="#/copper" data-route="/copper"><span data-icon="gem"></span><span>铜矿报备</span></a>
+        <a class="tab" href="#/admin" data-route="/admin"><span data-icon="settings"></span><span>管理中心</span></a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="toast-root" id="toast-root" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+  <input type="file" id="json-file" accept=".json,application/json" hidden>
+
+  <noscript>
+    <div style="padding:24px;color:#e8dcc8;text-align:center">请开启 JavaScript 后使用同盟战功统计看板。</div>
+  </noscript>
+
+  <script>
+/* 同盟战功统计看板 · 数据层（无依赖，可直接 file:// 打开） */
+(function (global) {
+  'use strict';
+
+  const STORAGE_KEY = 'jtl.board.v1';
+  const VERSION = 1;
+  const DEFAULT_WEIGHTS = { contribution: 30, warMerit: 50, assist: 20 };
+  const COPPER_COST = { 9: 50000, 10: 100000 };
+
+  const ALIASES = {
+    name: ['成员', '成员名', '成员名称', '玩家', '玩家名', '玩家名字', '昵称', '名字', '角色名', '角色', 'name', 'member'],
+    clanName: ['门阀', '门阀名', '同盟', '同盟名', '联盟', '帮会', '公会', 'clan', 'alliance'],
+    stateName: ['州', '州名', '出生州', '所在州', '地区', 'state'],
+    powerValue: ['势力', '势力值', '战力', '战力值', 'power'],
+    warMeritTotal: ['战功本周', '本周战功', '战功', '周战功', '战功总量', 'warmerit', 'war_merit'],
+    contributionTotal: ['贡献本周', '本周贡献', '贡献', '同盟贡献', '周贡献', 'contribution'],
+    assistTotal: ['助攻本周', '本周助攻', '助攻', '周助攻', 'assist'],
+    donationTotal: ['捐献本周', '本周捐献', '捐献', '资源捐献', 'donation']
+  };
+
+  const NORMALIZE_HEADER = (s) => String(s || '')
+    .replace(/^\uFEFF/, '')
+    .replace(/\s+/g, '')
+    .replace(/[（(][^）)]*[）)]/g, '')
+    .replace(/[:：]/g, '')
+    .toLowerCase();
+
+  const ALIAS_LOOKUP = {};
+  Object.keys(ALIASES).forEach((key) => {
+    ALIASES[key].forEach((alias) => { ALIAS_LOOKUP[NORMALIZE_HEADER(alias)] = key; });
+  });
+
+  let store = null;
+  try {
+    if (global.localStorage) {
+      const probe = '__jtl_probe__';
+      global.localStorage.setItem(probe, '1');
+      global.localStorage.removeItem(probe);
+      store = global.localStorage;
+    }
+  } catch (err) { store = null; }
+
+  let state = null;
+  let cache = new Map();
+  let lastSaveOk = true;
+
+  /* ---------------- 日期与数字 ---------------- */
+  const pad2 = (n) => String(n).padStart(2, '0');
+
+  function dateKey(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+  function todayKey() { return dateKey(new Date()); }
+  function parseKey(key) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key || ''));
+    if (!m) return null;
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function addDays(key, n) {
+    const d = parseKey(key);
+    if (!d) return key;
+    d.setDate(d.getDate() + n);
+    return dateKey(d);
+  }
+  function weekStart(key) {
+    const d = parseKey(key);
+    if (!d) return key;
+    const offset = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - offset);
+    return dateKey(d);
+  }
+  const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  function weekday(key) {
+    const d = parseKey(key);
+    return d ? WEEKDAYS[d.getDay()] : '';
+  }
+  function humanDate(key) {
+    const d = parseKey(key);
+    if (!d) return key || '--';
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日 · ' + WEEKDAYS[d.getDay()];
+  }
+  function shortDate(key) { return String(key || '').slice(5).replace('-', '.'); }
+  function weekRangeLabel(key) {
+    const s = weekStart(key);
+    return shortDate(s) + ' - ' + shortDate(addDays(s, 6));
+  }
+
+  function fmt(n) {
+    const v = Number(n);
+    if (!isFinite(v)) return '0';
+    const abs = Math.abs(v);
+    const trim = (x) => x.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    if (abs >= 1e8) return (v / 1e8).toFixed(2).replace(/\.00$/, '') + '亿';
+    if (abs >= 1e4) return (v / 1e4).toFixed(2).replace(/\.00$/, '') + '万';
+    return Math.round(v).toLocaleString('zh-CN');
+  }
+  function fmtFull(n) {
+    const v = Number(n);
+    return isFinite(v) ? Math.round(v).toLocaleString('zh-CN') : '0';
+  }
+  function fmtPct(v) {
+    if (v === null || v === undefined || !isFinite(v)) return '';
+    const sign = v > 0 ? '+' : '';
+    return sign + (Math.round(v * 10) / 10).toFixed(1) + '%';
+  }
+  function parseNum(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : 0;
+    let s = String(v == null ? '' : v).trim().replace(/[,，\s]/g, '').replace(/^\+/, '');
+    if (!s || /^[-—–－]+$/.test(s)) return 0;
+    let mult = 1;
+    if (/亿$/.test(s)) { mult = 1e8; s = s.slice(0, -1); }
+    else if (/万$/.test(s)) { mult = 1e4; s = s.slice(0, -1); }
+    else if (/[wW]$/.test(s)) { mult = 1e4; s = s.slice(0, -1); }
+    else if (/[kK]$/.test(s)) { mult = 1e3; s = s.slice(0, -1); }
+    const n = parseFloat(s);
+    return isFinite(n) ? Math.round(n * mult) : 0;
+  }
+
+  /* ---------------- 状态 ---------------- */
+  function blankState() {
+    return {
+      version: VERSION,
+      demo: false,
+      snapshots: {},
+      importLogs: [],
+      copperReports: [],
+      weights: Object.assign({}, DEFAULT_WEIGHTS),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+  function validWeights(w) {
+    if (!w) return null;
+    const c = Math.max(0, Math.round(Number(w.contribution) || 0));
+    const m = Math.max(0, Math.round(Number(w.warMerit) || 0));
+    const a = Math.max(0, Math.round(Number(w.assist) || 0));
+    if (c + m + a !== 100) return null;
+    return { contribution: c, warMerit: m, assist: a };
+  }
+  function sanitizeMember(m) {
+    return {
+      name: String(m && m.name != null ? m.name : '').trim(),
+      clanName: String((m && (m.clanName || m.clan)) || '未分门阀').replace(/^[\[【]|[\]】]$/g, '').trim() || '未分门阀',
+      stateName: String((m && (m.stateName || m.state)) || '未知').trim() || '未知',
+      powerValue: parseNum(m && (m.powerValue != null ? m.powerValue : m.power)),
+      warMeritTotal: parseNum(m && m.warMeritTotal),
+      contributionTotal: parseNum(m && m.contributionTotal),
+      assistTotal: parseNum(m && m.assistTotal),
+      donationTotal: parseNum(m && m.donationTotal)
+    };
+  }
+  function adoptState(raw) {
+    const s = blankState();
+    s.demo = !!raw.demo;
+    Object.keys(raw.snapshots || {}).forEach((date) => {
+      const snap = raw.snapshots[date];
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !snap || !Array.isArray(snap.members)) return;
+      s.snapshots[date] = {
+        date: date,
+        importedAt: snap.importedAt || new Date().toISOString(),
+        fileName: snap.fileName || ('战报_' + date + '.csv'),
+        members: snap.members.map(sanitizeMember).filter((m) => m.name)
+      };
+    });
+    s.weights = validWeights(raw.weights) || Object.assign({}, DEFAULT_WEIGHTS);
+    s.importLogs = Array.isArray(raw.importLogs) ? raw.importLogs.slice(0, 120) : [];
+    s.copperReports = Array.isArray(raw.copperReports) ? raw.copperReports.filter((r) => r && r.player).map((r) => ({
+      id: String(r.id || ('tk' + Math.random().toString(36).slice(2, 9))),
+      player: String(r.player),
+      coordinate: String(r.coordinate || ''),
+      level: Number(r.level) === 10 ? 10 : 9,
+      deducted: parseNum(r.deducted),
+      status: ['pending', 'settled', 'void'].indexOf(r.status) >= 0 ? r.status : 'pending',
+      note: String(r.note || ''),
+      createdAt: r.createdAt || new Date().toISOString(),
+      settledAt: r.settledAt || null
+    })) : [];
+    s.createdAt = raw.createdAt || s.createdAt;
+    return s;
+  }
+  function persist() {
+    if (!state) return false;
+    state.updatedAt = new Date().toISOString();
+    if (!store) { lastSaveOk = false; return false; }
+    try {
+      store.setItem(STORAGE_KEY, JSON.stringify(state));
+      lastSaveOk = true;
+      return true;
+    } catch (err) {
+      lastSaveOk = false;
+      return false;
+    }
+  }
+  function invalidate() {
+    cache = new Map();
+    persist();
+  }
+  function init() {
+    if (state) return;
+    let raw = null;
+    try { raw = store ? store.getItem(STORAGE_KEY) : null; } catch (err) { raw = null; }
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.snapshots) { state = adoptState(parsed); return; }
+      } catch (err) { /* 损坏时回退到演示数据 */ }
+    }
+    state = buildDemoState();
+    persist();
+  }
+
+  /* ---------------- 演示数据 ---------------- */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const DEMO_NAMES = [
+    '云中月', '北陌', '长安客', '一剑霜寒', '青衫落拓', '孤城闭', '折戟沉沙', '千山暮雪', '醉里挑灯', '落霞孤鹜',
+    '风起长林', '江左梅郎', '铁马冰河', '夜阑听雨', '昆仑雪', '白衣卿相', '半盏清茶', '故人归', '大漠孤烟', '剑气如虹',
+    '月照西楼', '山有扶苏', '沧海一粟', '清风徐来', '疏影横斜', '断桥残雪', '烟雨江南', '逐鹿中原', '横槊赋诗', '燕云十八骑',
+    '龙城飞将', '不破楼兰', '玉门关', '天山雪', '塞北孤鸿', '南风知我意', '桃花扇', '青玉案', '临江仙', '水调歌头',
+    '破阵子', '定风波', '满江红', '念奴娇', '如梦令', '雨霖铃', '鹧鸪天', '蝶恋花', '渔家傲', '苏幕遮',
+    '江城子', '望江南', '采桑子', '菩萨蛮', '西江月', '点绛唇', '一剪梅', '醉花阴', '凤凰台上', '铜雀春深',
+    '洛水惊鸿', '无痕', '墨白', '子夜', '惊蛰', '白露', '霜降', '小雪', '冬至', '谷雨',
+    '长歌', '短歌', '行舟', '归途', '星河', '烛龙', '毕方', '麒麟', '朱雀', '玄武', '青龙', '白虎'
+  ];
+  const DEMO_CLANS = [
+    { name: '九天揽月', state: '并州', size: 12 },
+    { name: '龙渊', state: '冀州', size: 11 },
+    { name: '山河故人', state: '青州', size: 10 },
+    { name: '铁骑踏雪', state: '幽州', size: 10 },
+    { name: '听雨阁', state: '扬州', size: 9 },
+    { name: '焚天', state: '益州', size: 9 },
+    { name: '白衣渡江', state: '荆州', size: 9 },
+    { name: '星陨', state: '凉州', size: 8 }
+  ];
+
+  function buildDemoState() {
+    const s = blankState();
+    s.demo = true;
+    const rnd = mulberry32(20261110);
+    const specials = ['旧时友', '新雨', '青衫客'];
+    const pool = specials.concat(DEMO_NAMES.filter((n) => specials.indexOf(n) < 0));
+    let p = 0;
+    const roster = [];
+    DEMO_CLANS.forEach((c) => {
+      for (let i = 0; i < c.size; i++) {
+        const name = pool[p++] || ('无名客' + p);
+        roster.push({
+          name: name,
+          clanName: c.name,
+          stateName: c.state,
+          powerValue: Math.round(900000 + rnd() * 8200000),
+          activity: 0.25 + rnd() * 1.1
+        });
+      }
+    });
+    const find = (n) => roster.find((m) => m.name === n);
+    const oldFriend = find('旧时友'); if (oldFriend) { oldFriend.clanName = '山河故人'; oldFriend.stateName = '青州'; }
+    const newRain = find('新雨'); if (newRain) { newRain.clanName = '九天揽月'; newRain.stateName = '并州'; }
+    const wanderer = find('青衫客'); if (wanderer) { wanderer.clanName = '听雨阁'; wanderer.stateName = '扬州'; }
+    const stars = roster.filter((m) => specials.indexOf(m.name) < 0).slice(0, 4);
+    stars.forEach((m, i) => { m.powerValue = 9600000 + i * 1350000; m.activity = 1.65 - i * 0.1; });
+    roster.slice(-3).forEach((m) => { if (specials.indexOf(m.name) < 0) m.activity = 0.08; });
+
+    const today = todayKey();
+    const dates = [];
+    for (let i = 13; i >= 0; i--) dates.push(addDays(today, -i));
+    const leaveIdx = 13, joinIdx = 13, transferIdx = 13;
+    const weekly = new Map();
+
+    dates.forEach((date, di) => {
+      const wk = weekStart(date);
+      const snapMembers = [];
+      roster.forEach((m) => {
+        if (m.name === '旧时友' && di >= leaveIdx) return;
+        if (m.name === '新雨' && di < joinIdx) return;
+        let w = weekly.get(m.name);
+        if (!w || w.week !== wk) {
+          w = {
+            week: wk,
+            war: Math.round(rnd() * 90000),
+            contribution: Math.round(rnd() * 16000),
+            assist: Math.round(rnd() * 10000),
+            donation: Math.round(rnd() * 6000)
+          };
+          weekly.set(m.name, w);
+        }
+        const zero = rnd() < 0.05 || m.activity < 0.2;
+        const warGain = zero ? 0 : Math.round((30000 + rnd() * 170000) * m.activity);
+        const contributionGain = zero ? 0 : Math.round((5000 + rnd() * 26000) * m.activity);
+        const assistGain = zero ? 0 : Math.round((2000 + rnd() * 14000) * m.activity);
+        const donationGain = zero ? 0 : Math.round((500 + rnd() * 5000) * m.activity);
+        w.war += warGain; w.contribution += contributionGain; w.assist += assistGain; w.donation += donationGain;
+        m.powerValue += Math.round(rnd() * 2600);
+        const moved = m.name === '青衫客' && di >= transferIdx;
+        snapMembers.push({
+          name: m.name,
+          clanName: moved ? '九天揽月' : m.clanName,
+          stateName: moved ? '并州' : m.stateName,
+          powerValue: m.powerValue,
+          warMeritTotal: w.war,
+          contributionTotal: w.contribution,
+          assistTotal: w.assist,
+          donationTotal: w.donation
+        });
+      });
+      const importedAt = new Date(date + 'T08:30:00').toISOString();
+      s.snapshots[date] = {
+        date: date,
+        importedAt: importedAt,
+        fileName: '战报_' + date + '.csv',
+        members: snapMembers
+      };
+      s.importLogs.push({
+        id: 'demo-' + di,
+        date: date,
+        fileName: '战报_' + date + '.csv',
+        memberCount: snapMembers.length,
+        clanCount: new Set(snapMembers.map((x) => x.clanName)).size,
+        mode: 'insert',
+        importedAt: importedAt
+      });
+    });
+
+    const latest = s.snapshots[today];
+    if (latest && latest.members.length) {
+      const top = latest.members.slice().sort((a, b) => b.warMeritTotal - a.warMeritTotal);
+      const week = weekStart(today);
+      const mk = (idx, level, status, dayOffset) => {
+        const m = top[idx % top.length];
+        return {
+          id: 'demo-copper-' + idx,
+          player: m.name,
+          coordinate: '13' + (2 + idx) + ',' + (4 + idx * 3) + '06',
+          level: level,
+          deducted: COPPER_COST[level],
+          status: status,
+          note: '演示记录',
+          createdAt: new Date(addDays(today, -dayOffset) + 'T09:30:00').toISOString(),
+          settledAt: status === 'settled' ? new Date(addDays(today, -dayOffset) + 'T10:00:00').toISOString() : null
+        };
+      };
+      s.copperReports = [mk(0, 9, 'pending', 0), mk(1, 10, 'settled', 0), mk(2, 9, 'void', 2)];
+      s.importLogs.sort((a, b) => (a.importedAt < b.importedAt ? 1 : -1));
+      s.importLogs = s.importLogs.slice(0, 120);
+      void week;
+    }
+    return s;
+  }
+
+  /* ---------------- 日数据构建 ---------------- */
+  function sortedDates() {
+    return Object.keys(state.snapshots).sort();
+  }
+  function latestDate() {
+    const d = sortedDates();
+    return d.length ? d[d.length - 1] : null;
+  }
+  function getDay(date) {
+    if (!state.snapshots[date]) return null;
+    if (cache.has(date)) return cache.get(date);
+    const built = buildDay(date);
+    cache.set(date, built);
+    return built;
+  }
+  function buildDay(date) {
+    const dates = sortedDates();
+    const idx = dates.indexOf(date);
+    const snap = state.snapshots[date];
+    const prevDate = idx > 0 ? dates[idx - 1] : null;
+    const wk = weekStart(date);
+    let sameWeekPrevDate = null;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (weekStart(dates[i]) === wk) { sameWeekPrevDate = dates[i]; break; }
+    }
+    const baseSnap = sameWeekPrevDate ? state.snapshots[sameWeekPrevDate] : null;
+    const baseMap = new Map();
+    if (baseSnap) baseSnap.members.forEach((m) => baseMap.set(m.name, m));
+    const status = !prevDate ? 'no_baseline' : (sameWeekPrevDate ? 'normal' : 'week_reset');
+
+    const members = snap.members.map((raw) => {
+      const b = baseMap.get(raw.name);
+      const delta = (field) => b ? Math.max(0, (raw[field] || 0) - (b[field] || 0)) : (raw[field] || 0);
+      const out = {
+        name: raw.name,
+        clanName: raw.clanName,
+        stateName: raw.stateName,
+        powerValue: raw.powerValue,
+        warMeritTotal: raw.warMeritTotal,
+        contributionTotal: raw.contributionTotal,
+        assistTotal: raw.assistTotal,
+        donationTotal: raw.donationTotal,
+        warMeritDaily: delta('warMeritTotal'),
+        contributionDaily: delta('contributionTotal'),
+        assistDaily: delta('assistTotal'),
+        donationDaily: delta('donationTotal'),
+        isNew: status === 'normal' && !b
+      };
+      return out;
+    });
+
+    const w = normalizedWeights();
+    const range = (field) => {
+      let min = Infinity, max = -Infinity;
+      members.forEach((m) => {
+        const v = Number(m[field]) || 0;
+        if (v < min) min = v;
+        if (v > max) max = v;
+      });
+      return { min: isFinite(min) ? min : 0, max: isFinite(max) ? max : 0 };
+    };
+    const ranges = {
+      warMeritDaily: range('warMeritDaily'),
+      contributionDaily: range('contributionDaily'),
+      assistDaily: range('assistDaily')
+    };
+    const norm = (v, r) => (r.max > r.min ? (v - r.min) / (r.max - r.min) : (r.max > 0 ? 1 : 0));
+    members.forEach((m) => {
+      const score = 100 * (
+        w.warMerit * norm(m.warMeritDaily, ranges.warMeritDaily) +
+        w.contribution * norm(m.contributionDaily, ranges.contributionDaily) +
+        w.assist * norm(m.assistDaily, ranges.assistDaily)
+      );
+      m.activityScore = Math.round(score * 10) / 10;
+    });
+
+    const rankBy = (field, key) => {
+      members.slice().sort((a, b) => (b[field] - a[field]) || a.name.localeCompare(b.name, 'zh')).forEach((m, i) => { m[key] = i + 1; });
+    };
+    rankBy('warMeritDaily', 'warMeritRank');
+    rankBy('contributionDaily', 'contributionRank');
+    rankBy('assistDaily', 'assistRank');
+    rankBy('activityScore', 'activityRank');
+    rankBy('warMeritTotal', 'totalRank');
+
+    const clanGroups = new Map();
+    members.forEach((m) => {
+      if (!clanGroups.has(m.clanName)) clanGroups.set(m.clanName, []);
+      clanGroups.get(m.clanName).push(m);
+    });
+    clanGroups.forEach((list) => {
+      list.slice().sort((a, b) => (b.warMeritDaily - a.warMeritDaily) || a.name.localeCompare(b.name, 'zh'))
+        .forEach((m, i) => { m.clanRank = i + 1; });
+    });
+
+    const clanMap = new Map();
+    members.forEach((m) => {
+      let c = clanMap.get(m.clanName);
+      if (!c) {
+        c = {
+          clanName: m.clanName, stateName: m.stateName, memberCount: 0, activeCount: 0,
+          warMeritDaily: 0, contributionDaily: 0, assistDaily: 0,
+          warMeritTotal: 0, contributionTotal: 0, assistTotal: 0, donationTotal: 0,
+          sumActivity: 0, stateCounts: {}
+        };
+        clanMap.set(m.clanName, c);
+      }
+      c.memberCount++;
+      c.warMeritDaily += m.warMeritDaily;
+      c.contributionDaily += m.contributionDaily;
+      c.assistDaily += m.assistDaily;
+      c.warMeritTotal += m.warMeritTotal;
+      c.contributionTotal += m.contributionTotal;
+      c.assistTotal += m.assistTotal;
+      c.donationTotal += m.donationTotal;
+      c.sumActivity += m.activityScore;
+      c.stateCounts[m.stateName] = (c.stateCounts[m.stateName] || 0) + 1;
+      if (m.warMeritDaily > 0 || m.contributionDaily > 0 || m.assistDaily > 0) c.activeCount++;
+    });
+    const clans = Array.from(clanMap.values()).map((c) => {
+      const states = Object.keys(c.stateCounts).sort((a, b) => c.stateCounts[b] - c.stateCounts[a]);
+      return {
+        clanName: c.clanName,
+        stateName: states[0] || '未知',
+        stateCounts: c.stateCounts,
+        memberCount: c.memberCount,
+        activeCount: c.activeCount,
+        warMeritDaily: c.warMeritDaily,
+        contributionDaily: c.contributionDaily,
+        assistDaily: c.assistDaily,
+        warMeritTotal: c.warMeritTotal,
+        contributionTotal: c.contributionTotal,
+        assistTotal: c.assistTotal,
+        donationTotal: c.donationTotal,
+        avgActivityScore: Math.round((c.sumActivity / Math.max(1, c.memberCount)) * 10) / 10
+      };
+    });
+    clans.sort((a, b) => b.warMeritDaily - a.warMeritDaily);
+    clans.forEach((c, i) => { c.rank = i + 1; });
+
+    const totals = {
+      warMeritDaily: members.reduce((s2, m) => s2 + m.warMeritDaily, 0),
+      contributionDaily: members.reduce((s2, m) => s2 + m.contributionDaily, 0),
+      assistDaily: members.reduce((s2, m) => s2 + m.assistDaily, 0),
+      donationDaily: members.reduce((s2, m) => s2 + m.donationDaily, 0),
+      warMeritTotal: members.reduce((s2, m) => s2 + m.warMeritTotal, 0),
+      contributionTotal: members.reduce((s2, m) => s2 + m.contributionTotal, 0),
+      assistTotal: members.reduce((s2, m) => s2 + m.assistTotal, 0),
+      donationTotal: members.reduce((s2, m) => s2 + m.donationTotal, 0)
+    };
+    const activeMembers = members.filter((m) => m.warMeritDaily > 0 || m.contributionDaily > 0 || m.assistDaily > 0).length;
+    const byName = new Map();
+    members.forEach((m) => byName.set(m.name, m));
+
+    const changes = { warMerit: null, contribution: null, assist: null };
+    let changeBasis = 'none';
+    let basisDay = null;
+    if (status === 'normal' && prevDate) {
+      const prev = getDay(prevDate);
+      if (prev && prev.status === 'normal') { basisDay = prev; changeBasis = 'prev'; }
+    }
+    if (!basisDay) {
+      const altDate = addDays(date, -7);
+      if (state.snapshots[altDate]) {
+        const alt = getDay(altDate);
+        if (alt && alt.status === 'normal') { basisDay = alt; changeBasis = 'weekAgo'; }
+      }
+    }
+    if (basisDay) {
+      const calc = (cur, old) => (old > 0 ? Math.round(((cur - old) / old) * 1000) / 10 : null);
+      changes.warMerit = calc(totals.warMeritDaily, basisDay.totals.warMeritDaily);
+      changes.contribution = calc(totals.contributionDaily, basisDay.totals.contributionDaily);
+      changes.assist = calc(totals.assistDaily, basisDay.totals.assistDaily);
+    }
+
+    return {
+      date: date,
+      status: status,
+      prevDate: prevDate,
+      sameWeekPrevDate: sameWeekPrevDate,
+      fileName: snap.fileName,
+      importedAt: snap.importedAt,
+      weekLabel: weekRangeLabel(date),
+      members: members,
+      byName: byName,
+      clans: clans,
+      totals: totals,
+      activeMembers: activeMembers,
+      totalMembers: members.length,
+      totalClans: clans.length,
+      changes: changes,
+      changeBasis: changeBasis,
+      ranges: ranges
+    };
+  }
+
+  function normalizedWeights() {
+    const w = state && state.weights ? state.weights : DEFAULT_WEIGHTS;
+    const sum = w.contribution + w.warMerit + w.assist || 100;
+    return { contribution: w.contribution / sum, warMerit: w.warMerit / sum, assist: w.assist / sum };
+  }
+  function weights() { return Object.assign({}, state.weights); }
+  function setWeights(next) {
+    const w = validWeights(next);
+    if (!w) throw new Error('三项权重之和必须等于 100%');
+    state.weights = w;
+    invalidate();
+    return w;
+  }
+  function resetWeights() {
+    state.weights = Object.assign({}, DEFAULT_WEIGHTS);
+    invalidate();
+  }
+
+  /* ---------------- 组合数据 ---------------- */
+  function trend(date, days) {
+    const n = days || 7;
+    const dates = sortedDates().filter((d) => d <= date).slice(-n);
+    return dates.map((d) => {
+      const dd = getDay(d);
+      return {
+        date: d,
+        label: d.slice(5),
+        status: dd.status,
+        warMeritDaily: dd.totals.warMeritDaily,
+        contributionDaily: dd.totals.contributionDaily,
+        assistDaily: dd.totals.assistDaily,
+        activeMembers: dd.activeMembers,
+        totalMembers: dd.totalMembers
+      };
+    });
+  }
+  function dashboard(date) {
+    const d = getDay(date);
+    if (!d) return null;
+    const tr = trend(date, 7);
+    const prev = d.prevDate ? getDay(d.prevDate) : null;
+    const rising = [];
+    let growthBasis = null, growthBasisLabel = '';
+    if (d.status === 'normal' && prev && prev.status === 'normal') {
+      growthBasis = prev; growthBasisLabel = '较昨日';
+    } else {
+      const altDate = addDays(date, -7);
+      if (state.snapshots[altDate]) {
+        const alt = getDay(altDate);
+        if (alt && alt.status === 'normal') { growthBasis = alt; growthBasisLabel = '较上周同日'; }
+      }
+    }
+    if (growthBasis) {
+      d.members.forEach((m) => {
+        const p = growthBasis.byName.get(m.name);
+        if (!p) return;
+        const growth = m.warMeritDaily - p.warMeritDaily;
+        if (growth > 0) rising.push({ member: m, growth: growth, basis: growthBasisLabel });
+      });
+      rising.sort((a, b) => b.growth - a.growth);
+    } else {
+      d.members.slice().sort((a, b) => b.warMeritDaily - a.warMeritDaily).slice(0, 6).forEach((m) => {
+        if (m.warMeritDaily > 0) rising.push({ member: m, growth: null, basis: '今日战功' });
+      });
+    }
+    const inactive = [];
+    const lookback = sortedDates().filter((x) => x <= date).slice(-14);
+    d.members.forEach((m) => {
+      let streak = 0;
+      for (let i = lookback.length - 1; i >= 0; i--) {
+        const dd = getDay(lookback[i]);
+        const mm = dd.byName.get(m.name);
+        if (!mm) break;
+        if (mm.warMeritDaily === 0 && mm.contributionDaily === 0) streak++;
+        else break;
+      }
+      if (streak > 0) inactive.push({ member: m, days: streak });
+    });
+    inactive.sort((a, b) => (b.days - a.days) || (a.member.activityScore - b.member.activityScore));
+    return Object.assign({}, d, {
+      trend: tr,
+      rising: rising.slice(0, 6),
+      inactive: inactive.slice(0, 8)
+    });
+  }
+  function clanList(date) {
+    const d = getDay(date);
+    return d ? d.clans.slice() : [];
+  }
+  function clanDetail(name, date) {
+    const d = getDay(date);
+    if (!d) return null;
+    const stat = d.clans.find((c) => c.clanName === name);
+    const members = d.members.filter((m) => m.clanName === name)
+      .sort((a, b) => (b.warMeritDaily - a.warMeritDaily) || a.name.localeCompare(b.name, 'zh'));
+    if (!stat || !members.length) return null;
+    const history = sortedDates().filter((x) => x <= date).slice(-7).map((x) => {
+      const dd = getDay(x);
+      const c = dd.clans.find((cc) => cc.clanName === name);
+      return {
+        date: x,
+        status: dd.status,
+        warMeritDaily: c ? c.warMeritDaily : 0,
+        contributionDaily: c ? c.contributionDaily : 0,
+        assistDaily: c ? c.assistDaily : 0,
+        memberCount: c ? c.memberCount : 0,
+        avgActivityScore: c ? c.avgActivityScore : 0
+      };
+    });
+    return { clanName: name, day: d, stat: stat, members: members, history: history, stateName: stat.stateName };
+  }
+  function memberProfile(name) {
+    const history = [];
+    sortedDates().forEach((date) => {
+      const dd = getDay(date);
+      const m = dd.byName.get(name);
+      if (m) history.push(Object.assign({}, m, { date: date, status: dd.status }));
+    });
+    if (!history.length) return null;
+    const latest = history[history.length - 1];
+    const latestDay = getDay(latest.date);
+    return {
+      name: name,
+      clanName: latest.clanName,
+      stateName: latest.stateName,
+      powerValue: latest.powerValue,
+      latest: latest,
+      day: latestDay,
+      history: history
+    };
+  }
+  function changes(date) {
+    const d = getDay(date);
+    if (!d || !d.prevDate) return null;
+    const prev = state.snapshots[d.prevDate];
+    const prevMap = new Map(prev.members.map((m) => [m.name, m]));
+    const added = [], lost = [], transfers = [], stateMoves = [];
+    d.members.forEach((m) => {
+      const p = prevMap.get(m.name);
+      if (!p) added.push(m);
+      else {
+        if (p.clanName !== m.clanName) transfers.push({ name: m.name, from: p.clanName, to: m.clanName });
+        if (p.stateName !== m.stateName) stateMoves.push({ name: m.name, from: p.stateName, to: m.stateName });
+      }
+    });
+    prev.members.forEach((p) => { if (!d.byName.has(p.name)) lost.push(p); });
+    return { date: date, prevDate: d.prevDate, added: added, lost: lost, transfers: transfers, stateMoves: stateMoves };
+  }
+
+  /* ---------------- CSV 解析 ---------------- */
+  function parseDelimited(text) {
+    const t = String(text || '').replace(/^\uFEFF/, '');
+    const firstLine = t.split(/\r?\n/).find((l) => l.trim()) || '';
+    let delim = ',';
+    const tabs = (firstLine.match(/\t/g) || []).length;
+    const commas = (firstLine.match(/,/g) || []).length;
+    if (tabs > commas) delim = '\t';
+    else if (commas === 0 && firstLine.indexOf(';') >= 0) delim = ';';
+    const rows = [];
+    let row = [], cell = '', quoted = false;
+    for (let i = 0; i < t.length; i++) {
+      const ch = t[i];
+      if (quoted) {
+        if (ch === '"') {
+          if (t[i + 1] === '"') { cell += '"'; i++; }
+          else quoted = false;
+        } else cell += ch;
+      } else if (ch === '"') quoted = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n') { row.push(cell); rows.push(row); row = []; cell = ''; }
+      else if (ch !== '\r') cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.map((r) => r.map((c) => String(c).trim()));
+  }
+  function parseDateFromName(fileName) {
+    const base = String(fileName || '').replace(/\.[^.]+$/, '');
+    const candidates = [];
+    let m = /(20\d{2})\s*[-_.年/]\s*(\d{1,2})\s*[-_.月/]\s*(\d{1,2})/.exec(base);
+    if (m) candidates.push([+m[1], +m[2], +m[3]]);
+    m = /(20\d{2})(\d{2})(\d{2})/.exec(base);
+    if (m) candidates.push([+m[1], +m[2], +m[3]]);
+    for (const c of candidates) {
+      const d = new Date(c[0], c[1] - 1, c[2]);
+      if (d.getFullYear() === c[0] && d.getMonth() === c[1] - 1 && d.getDate() === c[2]) {
+        return { date: dateKey(d), source: 'filename' };
+      }
+    }
+    m = /(?:^|\D)(\d{1,2})\s*[-_.月/]\s*(\d{1,2})(?:日|\D|$)/.exec(base);
+    if (m) {
+      const now = new Date();
+      let year = now.getFullYear();
+      let d = new Date(year, +m[1] - 1, +m[2]);
+      if (d.getTime() - now.getTime() > 60 * 24 * 3600 * 1000) {
+        d = new Date(year - 1, +m[1] - 1, +m[2]);
+      }
+      if (d.getMonth() === +m[1] - 1 && d.getDate() === +m[2]) {
+        return { date: dateKey(d), source: 'filename' };
+      }
+    }
+    return { date: null, source: null };
+  }
+  function parseCSV(text, fileName) {
+    const rows = parseDelimited(text);
+    if (!rows.length) throw new Error('文件内容为空');
+    let headerIndex = -1, bestScore = 0, map = null;
+    const limit = Math.min(20, rows.length);
+    for (let i = 0; i < limit; i++) {
+      const candidate = {};
+      let score = 0;
+      rows[i].forEach((cell, ci) => {
+        const key = ALIAS_LOOKUP[NORMALIZE_HEADER(cell)];
+        if (key && candidate[key] === undefined) { candidate[key] = ci; score++; }
+      });
+      if (candidate.name !== undefined &&
+        (candidate.warMeritTotal !== undefined || candidate.contributionTotal !== undefined || candidate.assistTotal !== undefined) &&
+        score > bestScore) {
+        headerIndex = i; bestScore = score; map = candidate;
+      }
+    }
+    if (headerIndex < 0 || !map) {
+      throw new Error('未识别到表头。请确认 CSV 至少包含「成员」以及「战功本周 / 贡献本周 / 助攻本周」中的一列。');
+    }
+    const warnings = [];
+    const missing = [];
+    if (map.clanName === undefined) missing.push('门阀');
+    if (map.stateName === undefined) missing.push('州');
+    if (map.powerValue === undefined) missing.push('势力值');
+    ['warMeritTotal', 'contributionTotal', 'assistTotal'].forEach((k) => {
+      if (map[k] === undefined) missing.push({ warMeritTotal: '战功本周', contributionTotal: '贡献本周', assistTotal: '助攻本周' }[k]);
+    });
+    if (missing.length) warnings.push('以下列未找到，将按 0 处理：' + missing.join('、'));
+    const cell = (row, key) => (map[key] === undefined ? '' : row[map[key]]);
+    const rowsOut = [];
+    const seen = new Map();
+    let duplicates = 0;
+    for (let i = headerIndex + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || r.every((c) => c === '')) continue;
+      const rawName = cell(r, 'name');
+      if (!rawName || /^(合计|总计|汇总|全员|成员|玩家|角色名)$/.test(rawName)) continue;
+      const member = sanitizeMember({
+        name: rawName,
+        clanName: cell(r, 'clanName') || '未分门阀',
+        stateName: cell(r, 'stateName') || '未知',
+        powerValue: cell(r, 'powerValue'),
+        warMeritTotal: cell(r, 'warMeritTotal'),
+        contributionTotal: cell(r, 'contributionTotal'),
+        assistTotal: cell(r, 'assistTotal'),
+        donationTotal: cell(r, 'donationTotal')
+      });
+      if (seen.has(member.name)) {
+        duplicates++;
+        rowsOut[seen.get(member.name)] = member;
+      } else {
+        seen.set(member.name, rowsOut.length);
+        rowsOut.push(member);
+      }
+    }
+    if (!rowsOut.length) throw new Error('没有解析到有效的成员数据，请检查 CSV 内容。');
+    if (duplicates) warnings.push('有 ' + duplicates + ' 个重名成员，已保留最后一条记录。');
+    const clans = Array.from(new Set(rowsOut.map((m) => m.clanName)));
+    const states = Array.from(new Set(rowsOut.map((m) => m.stateName)));
+    const dateInfo = parseDateFromName(fileName);
+    return {
+      rows: rowsOut,
+      fileName: fileName || '',
+      date: dateInfo.date,
+      dateSource: dateInfo.source,
+      memberCount: rowsOut.length,
+      clanCount: clans.length,
+      stateCount: states.length,
+      clans: clans,
+      states: states,
+      sampleMembers: rowsOut.slice(0, 6).map((m) => m.name),
+      warnings: warnings,
+      duplicateCount: duplicates
+    };
+  }
+  function commitImport(opts) {
+    const date = opts.date;
+    const rows = opts.rows || [];
+    const mode = opts.mode || 'insert';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('请选择有效的战报日期');
+    if (!rows.length) throw new Error('没有可导入的数据');
+    if (state.snapshots[date] && mode === 'skip') return { skipped: true };
+    if (state.demo) {
+      state.snapshots = {};
+      state.importLogs = [];
+      state.copperReports = [];
+      state.demo = false;
+    }
+    const now = new Date().toISOString();
+    state.snapshots[date] = {
+      date: date,
+      importedAt: now,
+      fileName: opts.fileName || ('战报_' + date + '.csv'),
+      members: rows.map(sanitizeMember).filter((m) => m.name)
+    };
+    const clans = new Set(rows.map((m) => m.clanName));
+    state.importLogs.unshift({
+      id: 'log-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      date: date,
+      fileName: opts.fileName || ('战报_' + date + '.csv'),
+      memberCount: rows.length,
+      clanCount: clans.size,
+      mode: mode,
+      importedAt: now
+    });
+    state.importLogs = state.importLogs.slice(0, 120);
+    invalidate();
+    return { ok: true, date: date, mode: mode, memberCount: rows.length, clanCount: clans.size, saved: lastSaveOk };
+  }
+  function deleteSnapshot(date) {
+    if (!state.snapshots[date]) return false;
+    delete state.snapshots[date];
+    state.importLogs = state.importLogs.filter((l) => l.date !== date);
+    invalidate();
+    return true;
+  }
+  function importLogs() {
+    return state.importLogs.slice().sort((a, b) => (a.importedAt < b.importedAt ? 1 : -1));
+  }
+
+  /* ---------------- 铜矿报备 ---------------- */
+  function reportDate(r) {
+    try { return dateKey(new Date(r.createdAt)); } catch (err) { return ''; }
+  }
+  function copperBalance(player, date) {
+    const d = getDay(date || latestDate());
+    const name = String(player || '').trim();
+    const none = { found: false, total: 0, settled: 0, pending: 0, available: 0, member: null, weekStart: d ? weekStart(d.date) : null };
+    if (!d || !name) return none;
+    const member = d.byName.get(name);
+    if (!member) return none;
+    const wk = weekStart(d.date);
+    const reports = state.copperReports.filter((r) => r.player === name && r.status !== 'void' && weekStart(reportDate(r)) === wk);
+    const settled = reports.filter((r) => r.status === 'settled').reduce((s, r) => s + r.deducted, 0);
+    const pending = reports.filter((r) => r.status === 'pending').reduce((s, r) => s + r.deducted, 0);
+    return {
+      found: true,
+      total: member.warMeritTotal,
+      settled: settled,
+      pending: pending,
+      available: Math.max(0, member.warMeritTotal - settled - pending),
+      member: member,
+      weekStart: wk
+    };
+  }
+  function addCopper(input) {
+    const player = String(input.player || '').trim();
+    const coordinate = String(input.coordinate || '').trim();
+    const level = String(input.level) === '10' ? 10 : 9;
+    const note = String(input.note || '').trim();
+    if (!player) throw new Error('请填写玩家名字');
+    if (!coordinate) throw new Error('请填写铜矿坐标');
+    const cost = COPPER_COST[level];
+    const bal = copperBalance(player);
+    if (!bal.found) throw new Error('未找到该玩家，请确认名字与最新战报一致');
+    if (bal.available < cost) throw new Error('可用战功不足：可用 ' + fmtFull(bal.available) + '，需要 ' + fmtFull(cost));
+    const rec = {
+      id: 'tk' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      player: player,
+      coordinate: coordinate,
+      level: level,
+      deducted: cost,
+      status: 'pending',
+      note: note,
+      createdAt: new Date().toISOString(),
+      settledAt: null
+    };
+    state.copperReports.unshift(rec);
+    persist();
+    return rec;
+  }
+  function settleCopper(id) {
+    const r = state.copperReports.find((x) => x.id === id);
+    if (!r || r.status !== 'pending') return false;
+    r.status = 'settled';
+    r.settledAt = new Date().toISOString();
+    persist();
+    return true;
+  }
+  function voidCopper(id) {
+    const r = state.copperReports.find((x) => x.id === id);
+    if (!r || r.status !== 'pending') return false;
+    r.status = 'void';
+    r.settledAt = new Date().toISOString();
+    persist();
+    return true;
+  }
+  function copperList() {
+    return state.copperReports.slice().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+  function copperStats() {
+    const today = todayKey();
+    const list = state.copperReports;
+    const settled = list.filter((r) => r.status === 'settled');
+    return {
+      todayCount: list.filter((r) => reportDate(r) === today).length,
+      pendingCount: list.filter((r) => r.status === 'pending').length,
+      settledCount: settled.length,
+      settledTotal: settled.reduce((s, r) => s + r.deducted, 0),
+      total: list.length
+    };
+  }
+
+  /* ---------------- 备份 ---------------- */
+  function exportJSON() {
+    return JSON.stringify(Object.assign({}, state, { exportedAt: new Date().toISOString() }), null, 2);
+  }
+  function importJSON(text) {
+    let raw;
+    try { raw = JSON.parse(text); } catch (err) { throw new Error('JSON 解析失败，请确认文件完整'); }
+    if (!raw || typeof raw !== 'object' || !raw.snapshots) throw new Error('文件不是本看板的备份格式');
+    const next = adoptState(raw);
+    if (!Object.keys(next.snapshots).length) throw new Error('备份中没有任何战报数据');
+    state = next;
+    invalidate();
+    return { dates: Object.keys(state.snapshots).length, demo: state.demo };
+  }
+  function loadDemo() {
+    state = buildDemoState();
+    invalidate();
+  }
+  function clearAll() {
+    state = blankState();
+    state.demo = false;
+    invalidate();
+  }
+  function isDemo() { return !!(state && state.demo); }
+  function storageAvailable() { return !!store; }
+  function storageBytes() {
+    try { return new TextEncoder().encode(JSON.stringify(state)).length; } catch (err) { return 0; }
+  }
+  function saveOk() { return lastSaveOk; }
+
+  /* ---------------- 文案 ---------------- */
+  function statusInfo(status) {
+    if (status === 'no_baseline') {
+      return {
+        key: 'no_baseline', label: '本周至今 · 无基线', tone: 'gold',
+        desc: '首次导入数据，暂无昨日基线，当前值为本周累计值。导入明日数据后将自动计算真实的当日增量。'
+      };
+    }
+    if (status === 'week_reset') {
+      return {
+        key: 'week_reset', label: '新周累计', tone: 'blue',
+        desc: '检测到本周数据重置（新一周开始），当日值按新一周累计展示。'
+      };
+    }
+    return {
+      key: 'normal', label: '当日增量', tone: 'jade',
+      desc: '有昨日基线，当日值 = 今日本周累计 − 昨日本周累计。'
+    };
+  }
+  function dailyLabel(status, base) {
+    if (status === 'no_baseline') return base.replace('今日', '本周');
+    if (status === 'week_reset') return base.replace('今日', '新周');
+    return base;
+  }
+  function totalLabel(status, base) {
+    return base;
+  }
+
+  const API = {
+    init: init,
+    isDemo: isDemo,
+    storageAvailable: storageAvailable,
+    storageBytes: storageBytes,
+    saveOk: saveOk,
+    dates: sortedDates,
+    latestDate: latestDate,
+    day: getDay,
+    dashboard: dashboard,
+    trend: trend,
+    clanList: clanList,
+    clanDetail: clanDetail,
+    memberProfile: memberProfile,
+    changes: changes,
+    weights: weights,
+    setWeights: setWeights,
+    resetWeights: resetWeights,
+    defaultWeights: DEFAULT_WEIGHTS,
+    parseCSV: parseCSV,
+    parseDateFromName: parseDateFromName,
+    commitImport: commitImport,
+    deleteSnapshot: deleteSnapshot,
+    importLogs: importLogs,
+    copperCost: COPPER_COST,
+    copperBalance: copperBalance,
+    addCopper: addCopper,
+    settleCopper: settleCopper,
+    voidCopper: voidCopper,
+    copperList: copperList,
+    copperStats: copperStats,
+    exportJSON: exportJSON,
+    importJSON: importJSON,
+    loadDemo: loadDemo,
+    clearAll: clearAll,
+    statusInfo: statusInfo,
+    dailyLabel: dailyLabel,
+    totalLabel: totalLabel,
+    dateKey: dateKey,
+    todayKey: todayKey,
+    addDays: addDays,
+    weekStart: weekStart,
+    weekRangeLabel: weekRangeLabel,
+    humanDate: humanDate,
+    weekday: weekday,
+    shortDate: shortDate,
+    fmt: fmt,
+    fmtFull: fmtFull,
+    fmtPct: fmtPct,
+    parseNum: parseNum
+  };
+
+  global.BoardData = API;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* 轻量 SVG 图表（无第三方依赖） */
+(function (global) {
+  'use strict';
+
+  const COLORS = {
+    gold: '#c9a96e',
+    goldLight: '#e9d4a5',
+    cinnabar: '#c0503f',
+    jade: '#6f9c7d',
+    blue: '#7fa6c9',
+    muted: '#9a8f7a'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function fmt(v) {
+    return global.BoardData ? global.BoardData.fmt(v) : String(v);
+  }
+  function axisFmt(v) {
+    const n = Number(v) || 0;
+    if (Math.abs(n) >= 1e8) return (n / 1e8).toFixed(n % 1e8 === 0 ? 0 : 1) + '亿';
+    if (Math.abs(n) >= 1e4) return (n / 1e4).toFixed(n % 1e4 === 0 ? 0 : 1) + '万';
+    return String(Math.round(n));
+  }
+  function niceMax(v) {
+    if (!isFinite(v) || v <= 0) return 1;
+    const exp = Math.pow(10, Math.floor(Math.log10(v)));
+    const f = v / exp;
+    const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+    return nf * exp;
+  }
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  function svgEl(width, height, inner, label) {
+    return '<svg class="chart-svg" viewBox="0 0 ' + width + ' ' + height + '" width="' + width + '" height="' + height +
+      '" role="img" aria-label="' + esc(label || '图表') + '">' + inner + '</svg>';
+  }
+
+  function tooltipHTML(name, label, value) {
+    return '<span class="tip-label">' + esc(label) + '</span><span class="tip-value">' + esc(fmt(value)) + '</span>' +
+      (name ? '<span class="tip-name">' + esc(name) + '</span>' : '');
+  }
+
+  function line(el, cfg) {
+    if (!el) return;
+    const labels = (cfg.labels || []).slice();
+    const values = (cfg.values || []).map((v) => Number(v) || 0);
+    if (!labels.length) {
+      el.innerHTML = '<div class="chart-empty">暂无趋势数据</div>';
+      return;
+    }
+    if (labels.length < 2) {
+      el.innerHTML = '<div class="chart-empty">需要至少 2 天战报才能画出走势</div>';
+      return;
+    }
+    const width = Math.max(260, el.clientWidth || 600);
+    const height = cfg.height || 250;
+    const pad = { l: 48, r: 16, t: 16, b: 30 };
+    const iw = width - pad.l - pad.r;
+    const ih = height - pad.t - pad.b;
+    const max = niceMax(Math.max.apply(null, values.concat([1])));
+    const n = values.length;
+    const xAt = (i) => pad.l + (n === 1 ? iw / 2 : (i / (n - 1)) * iw);
+    const yAt = (v) => pad.t + ih - (v / max) * ih;
+    const color = cfg.color || COLORS.gold;
+    const gid = 'lg' + Math.random().toString(36).slice(2, 8);
+    const pts = values.map((v, i) => [xAt(i), yAt(v)]);
+    const linePath = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const areaPath = linePath + ' L' + pts[pts.length - 1][0].toFixed(1) + ' ' + (pad.t + ih) +
+      ' L' + pts[0][0].toFixed(1) + ' ' + (pad.t + ih) + ' Z';
+    let grid = '';
+    const ticks = 4;
+    for (let i = 0; i <= ticks; i++) {
+      const y = pad.t + (ih / ticks) * i;
+      const val = max - (max / ticks) * i;
+      grid += '<line class="chart-grid" x1="' + pad.l + '" y1="' + y.toFixed(1) + '" x2="' + (width - pad.r) + '" y2="' + y.toFixed(1) + '"/>';
+      grid += '<text class="chart-axis" x="' + (pad.l - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + axisFmt(val) + '</text>';
+    }
+    let xs = '';
+    const maxLabels = width < 420 ? 4 : 7;
+    const step = Math.max(1, Math.ceil((n - 1) / Math.max(1, maxLabels - 1)));
+    labels.forEach((lab, i) => {
+      if (i !== 0 && i % step !== 0) {
+        if (i !== n - 1) return;
+        const lastLabeled = Math.floor((n - 1) / step) * step;
+        if (i - lastLabeled < Math.ceil(step / 2)) return;
+      }
+      xs += '<text class="chart-axis" x="' + xAt(i).toFixed(1) + '" y="' + (height - 10) + '" text-anchor="middle">' + esc(lab) + '</text>';
+    });
+    let dots = '';
+    pts.forEach((p, i) => {
+      dots += '<circle class="chart-dot" cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.6" fill="' + color + '"><title>' + esc(labels[i] + ' ' + fmt(values[i])) + '</title></circle>';
+    });
+    const inner =
+      '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="' + color + '" stop-opacity="0.32"/>' +
+      '<stop offset="1" stop-color="' + color + '" stop-opacity="0"/>' +
+      '</linearGradient></defs>' +
+      grid +
+      '<path d="' + areaPath + '" fill="url(#' + gid + ')"/>' +
+      '<path d="' + linePath + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
+      '<line class="chart-guide" x1="0" y1="' + pad.t + '" x2="0" y2="' + (pad.t + ih) + '" stroke="' + color + '" stroke-opacity="0.35" stroke-dasharray="3 3"/>' +
+      dots + xs;
+    el.classList.add('chart');
+    el.innerHTML = svgEl(width, height, inner, cfg.label || '趋势图') + '<div class="chart-tip" aria-hidden="true"></div>';
+    const tip = el.querySelector('.chart-tip');
+    const svg = el.querySelector('svg');
+    const guide = el.querySelector('.chart-guide');
+    const move = (clientX) => {
+      const rect = svg.getBoundingClientRect();
+      const x = ((clientX - rect.left) / Math.max(1, rect.width)) * width;
+      const i = clamp(Math.round(((x - pad.l) / iw) * (n - 1)), 0, n - 1);
+      tip.innerHTML = tooltipHTML(cfg.name, labels[i], values[i]);
+      tip.style.opacity = '1';
+      const px = (pts[i][0] / width) * rect.width;
+      const py = (pts[i][1] / height) * rect.height;
+      const tw = tip.offsetWidth || 110;
+      tip.style.left = clamp(px - tw / 2, 4, rect.width - tw - 4) + 'px';
+      tip.style.top = Math.max(4, py - 46) + 'px';
+      guide.setAttribute('x1', pts[i][0]);
+      guide.setAttribute('x2', pts[i][0]);
+      guide.style.opacity = '1';
+    };
+    svg.addEventListener('pointermove', (e) => move(e.clientX));
+    svg.addEventListener('pointerdown', (e) => move(e.clientX));
+    svg.addEventListener('pointerleave', () => {
+      tip.style.opacity = '0';
+      guide.style.opacity = '0';
+    });
+  }
+
+  function bar(el, cfg) {
+    if (!el) return;
+    const items = (cfg.items || []).slice();
+    if (!items.length) {
+      el.innerHTML = '<div class="chart-empty">暂无数据</div>';
+      return;
+    }
+    const width = Math.max(260, el.clientWidth || 600);
+    const height = cfg.height || 260;
+    const pad = { l: 48, r: 12, t: 18, b: 48 };
+    const iw = width - pad.l - pad.r;
+    const ih = height - pad.t - pad.b;
+    const max = niceMax(Math.max.apply(null, items.map((it) => it.value).concat([1])));
+    const band = iw / items.length;
+    const bw = Math.max(6, Math.min(46, band * 0.55));
+    const color = cfg.color || COLORS.gold;
+    let grid = '';
+    for (let i = 0; i <= 4; i++) {
+      const y = pad.t + (ih / 4) * i;
+      grid += '<line class="chart-grid" x1="' + pad.l + '" y1="' + y.toFixed(1) + '" x2="' + (width - pad.r) + '" y2="' + y.toFixed(1) + '"/>';
+      grid += '<text class="chart-axis" x="' + (pad.l - 8) + '" y="' + (y + 3).toFixed(1) + '" text-anchor="end">' + axisFmt(max - (max / 4) * i) + '</text>';
+    }
+    let bars = '', labels = '', hits = '';
+    const rotate = items.length > 5 || items.some((it) => String(it.label).length > 4);
+    items.forEach((it, i) => {
+      const h = Math.max(1, (it.value / max) * ih);
+      const x = pad.l + band * i + (band - bw) / 2;
+      const y = pad.t + ih - h;
+      bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) +
+        '" rx="2" fill="' + color + '" fill-opacity="' + (0.55 + 0.35 * (1 - i / items.length)).toFixed(2) + '"><title>' +
+        esc(it.label + ' ' + fmt(it.value)) + '</title></rect>';
+      if (items.length <= 8 && bw >= 24) {
+        bars += '<text class="chart-value" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 6).toFixed(1) + '" text-anchor="middle">' + esc(fmt(it.value)) + '</text>';
+      }
+      const cx = pad.l + band * i + band / 2;
+      if (rotate) {
+        labels += '<text class="chart-axis" x="' + cx.toFixed(1) + '" y="' + (height - 14) + '" text-anchor="end" transform="rotate(-32 ' + cx.toFixed(1) + ' ' + (height - 14) + ')">' + esc(it.label) + '</text>';
+      } else {
+        labels += '<text class="chart-axis" x="' + cx.toFixed(1) + '" y="' + (height - 16) + '" text-anchor="middle">' + esc(it.label) + '</text>';
+      }
+      hits += '<rect class="chart-hit" data-i="' + i + '" x="' + (pad.l + band * i).toFixed(1) + '" y="' + pad.t + '" width="' + band.toFixed(1) + '" height="' + ih + '" fill="transparent"/>';
+    });
+    el.classList.add('chart');
+    el.innerHTML = svgEl(width, height, grid + bars + labels + hits, cfg.label || '柱状图') + '<div class="chart-tip" aria-hidden="true"></div>';
+    const tip = el.querySelector('.chart-tip');
+    const svg = el.querySelector('svg');
+    svg.querySelectorAll('.chart-hit').forEach((rect) => {
+      rect.addEventListener('pointermove', (e) => {
+        const i = Number(rect.getAttribute('data-i'));
+        const it = items[i];
+        tip.innerHTML = tooltipHTML(cfg.name, it.label, it.value);
+        tip.style.opacity = '1';
+        const bounds = svg.getBoundingClientRect();
+        const px = ((pad.l + band * i + band / 2) / width) * bounds.width;
+        const tw = tip.offsetWidth || 110;
+        tip.style.left = clamp(px - tw / 2, 4, bounds.width - tw - 4) + 'px';
+        tip.style.top = '6px';
+      });
+      rect.addEventListener('pointerleave', () => { tip.style.opacity = '0'; });
+    });
+  }
+
+  function mount(el, renderer, cfg) {
+    if (!el) return;
+    const draw = () => {
+      if (!el.isConnected) return;
+      const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 600;
+      if (!w) return;
+      if (el._chartW === w) return;
+      el._chartW = w;
+      renderer(el, Object.assign({}, cfg, { width: w }));
+    };
+    draw();
+    if (typeof ResizeObserver !== 'undefined') {
+      if (el._chartRO) el._chartRO.disconnect();
+      let timer = null;
+      const ro = new ResizeObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+          if (!el.isConnected) { ro.disconnect(); return; }
+          el._chartW = -1;
+          draw();
+        }, 120);
+      });
+      ro.observe(el);
+      el._chartRO = ro;
+    }
+  }
+
+  function spark(values, color) {
+    const vals = (values || []).map((v) => Number(v) || 0);
+    if (vals.length < 2) return '';
+    const w = 92, h = 26, pad = 2;
+    const max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+    const span = max - min || 1;
+    const pts = vals.map((v, i) => [pad + (i / (vals.length - 1)) * (w - pad * 2), h - pad - ((v - min) / span) * (h - pad * 2)]);
+    const d = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+    const area = d + ' L' + (w - pad) + ' ' + h + ' L' + pad + ' ' + h + ' Z';
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '" aria-hidden="true">' +
+      '<path d="' + area + '" fill="' + color + '" fill-opacity="0.12"/>' +
+      '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+
+  function hbars(items, opts) {
+    const list = (items || []).slice();
+    if (!list.length) return '<div class="chart-empty">暂无数据</div>';
+    const max = opts && opts.max ? opts.max : Math.max.apply(null, list.map((it) => it.value).concat([1]));
+    return '<div class="hbars">' + list.map((it, i) => {
+      const pct = clamp((it.value / max) * 100, 0, 100);
+      return '<div class="hbar">' +
+        '<div class="hbar__head"><span class="hbar__label" title="' + esc(it.label) + '">' + esc(it.label) + '</span>' +
+        '<span class="hbar__value">' + esc(it.display || fmt(it.value)) + (it.unit ? '<small>' + esc(it.unit) + '</small>' : '') + '</span></div>' +
+        '<div class="hbar__track"><span class="hbar__fill" style="width:' + pct.toFixed(1) + '%;background:' + (it.color || (i === 0 ? COLORS.gold : COLORS.gold)) + ';opacity:' + (0.95 - i * 0.06).toFixed(2) + '"></span></div>' +
+        '</div>';
+    }).join('') + '</div>';
+  }
+
+  global.BoardCharts = { line: line, bar: bar, mount: mount, spark: spark, hbars: hbars, COLORS: COLORS };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* 通用 UI 工具：图标、提示、弹窗、下载 */
+(function (global) {
+  'use strict';
+
+  const ICONS = {
+    dashboard: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+    trophy: '<path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h2a2 2 0 0 1 0 4h-2"/><path d="M7 5H5a2 2 0 0 0 0 4h2"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
+    gem: '<path d="M6 3h12l4 6-10 12L2 9z"/><path d="M2 9h20"/><path d="M8 3l4 6 4-6"/><path d="M12 21 8 9"/><path d="M12 21l4-12"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    activity: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    crown: '<path d="M2 20h20"/><path d="M4 20 2 7l6 4 4-8 4 8 6-4-2 13"/>',
+    flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3 2.5.5 5 3 5 6a4 4 0 0 1-8 0c0-1 .5-2 1.5-2.5z"/><path d="M12 2c1 3 2.5 4.5 3.5 6A7 7 0 0 1 12 22a7 7 0 0 1-7-7c0-2 1-4 2-5 0 2 1 3 2 3-1-3 0-7 3-11z"/>',
+    sword: '<path d="M14.5 17.5 3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>',
+    sparkles: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/>',
+    alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+    check: '<path d="M20 6 9 17l-5-5"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    trash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+    info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+    chevronLeft: '<path d="m15 18-6-6 6-6"/>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>',
+    arrowLeft: '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+    arrowUp: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
+    arrowDown: '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+    coins: '<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
+    pickaxe: '<path d="M14.5 5.5 18 2l4 4-3.5 3.5"/><path d="m2 22 9-9"/><path d="M6.5 12.5 3 9l4-4 3.5 3.5"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+    plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+    database: '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>',
+    sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
+    eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+    scroll: '<path d="M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3"/><path d="M18 3h3v3"/><path d="M10 7h8"/><path d="M10 11h8"/><path d="M10 15h5"/>',
+    medal: '<circle cx="12" cy="15" r="6"/><path d="m8 9-3-6"/><path d="m16 9 3-6"/><path d="M12 12v3l1.5 1"/>',
+    copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+    archive: '<rect x="2" y="3" width="20" height="5" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/>',
+    shieldCheck: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>'
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function icon(name, size, cls) {
+    const paths = ICONS[name] || ICONS.info;
+    return '<svg class="icon ' + (cls || '') + '" width="' + (size || 18) + '" height="' + (size || 18) +
+      '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths + '</svg>';
+  }
+  function toast(message, type) {
+    const root = document.getElementById('toast-root');
+    if (!root) return;
+    const el = document.createElement('div');
+    el.className = 'toast toast--' + (type || 'info');
+    el.setAttribute('role', 'status');
+    el.innerHTML = '<span class="toast__icon">' + icon(type === 'error' ? 'alert' : type === 'success' ? 'check' : 'info', 16) + '</span><span>' + esc(message) + '</span>';
+    root.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('is-in'));
+    setTimeout(() => {
+      el.classList.remove('is-in');
+      setTimeout(() => el.remove(), 220);
+    }, 3400);
+  }
+  function modal(opts) {
+    const root = document.getElementById('modal-root');
+    if (!root) return { close: function () {} };
+    const prev = root.querySelector('.modal-backdrop');
+    if (prev) prev.remove();
+    const wrap = document.createElement('div');
+    wrap.className = 'modal-backdrop';
+    wrap.innerHTML = '<div class="modal ' + (opts.wide ? 'modal--wide' : '') + '" role="dialog" aria-modal="true" aria-label="' + esc(opts.title || '提示') + '">' +
+      '<div class="modal__head"><h3>' + esc(opts.title || '提示') + '</h3>' +
+      '<button class="icon-btn modal__close" type="button" aria-label="关闭">' + icon('x', 18) + '</button></div>' +
+      '<div class="modal__body">' + (opts.body || '') + '</div>' +
+      (opts.actions && opts.actions.length ? '<div class="modal__foot">' + opts.actions.map((a, i) =>
+        '<button type="button" class="btn ' + (a.variant || 'btn--ghost') + '" data-modal-action="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>' : '') +
+      '</div>';
+    root.appendChild(wrap);
+    requestAnimationFrame(() => wrap.classList.add('is-in'));
+    const close = () => {
+      wrap.classList.remove('is-in');
+      setTimeout(() => wrap.remove(), 160);
+      document.removeEventListener('keydown', onKey);
+      if (opts.onClose) opts.onClose();
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+    wrap.querySelector('.modal__close').addEventListener('click', close);
+    (opts.actions || []).forEach((a, i) => {
+      const btn = wrap.querySelector('[data-modal-action="' + i + '"]');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        if (a.onClick) {
+          const keep = a.onClick();
+          if (keep === false) return;
+        }
+        close();
+      });
+    });
+    return { close: close, el: wrap };
+  }
+  function confirmDialog(opts) {
+    return new Promise((resolve) => {
+      let answered = false;
+      modal({
+        title: opts.title || '请确认',
+        body: '<p class="modal__text">' + esc(opts.message || '') + '</p>',
+        actions: [
+          { label: opts.cancelText || '取消', variant: 'btn--ghost' },
+          {
+            label: opts.confirmText || '确定', variant: opts.danger ? 'btn--danger' : 'btn--gold',
+            onClick: function () { answered = true; resolve(true); }
+          }
+        ],
+        onClose: function () { if (!answered) resolve(false); }
+      });
+    });
+  }
+  function download(filename, content, type) {
+    const blob = new Blob([content], { type: type || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+  }
+  function debounce(fn, wait) {
+    let t = null;
+    return function () {
+      const args = arguments, ctx = this;
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(ctx, args), wait);
+    };
+  }
+  function delta(pct, basis) {
+    if (pct === null || pct === undefined || !isFinite(pct)) {
+      return '<span class="delta delta--flat"><span>—</span><em>' + esc(basis || '暂无对比') + '</em></span>';
+    }
+    const up = pct >= 0;
+    return '<span class="delta ' + (up ? 'delta--up' : 'delta--down') + '">' + icon(up ? 'arrowUp' : 'arrowDown', 12) +
+      '<b>' + esc(global.BoardData ? global.BoardData.fmtPct(pct) : pct + '%') + '</b><em>' + esc(basis || '较昨日') + '</em></span>';
+  }
+  function statusBadge(status, small) {
+    const info = global.BoardData ? global.BoardData.statusInfo(status) : { label: status, tone: 'jade' };
+    return '<span class="badge badge--' + info.tone + (small ? ' badge--sm' : '') + '">' + esc(info.label) + '</span>';
+  }
+  function medallion(rank, small) {
+    const r = Number(rank) || 0;
+    const cls = r === 1 ? ' is-gold' : r === 2 ? ' is-silver' : r === 3 ? ' is-bronze' : '';
+    return '<span class="medal' + cls + (small ? ' medal--sm' : '') + '" aria-label="第 ' + r + ' 名">' + r + '</span>';
+  }
+  function empty(iconName, title, desc, extra) {
+    return '<div class="empty">' + '<div class="empty__icon">' + icon(iconName || 'info', 26) + '</div>' +
+      '<div class="empty__title">' + esc(title || '暂无数据') + '</div>' +
+      (desc ? '<div class="empty__desc">' + esc(desc) + '</div>' : '') +
+      (extra || '') + '</div>';
+  }
+  function pctOf(a, b) { return b > 0 ? (a / b) * 100 : 0; }
+  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+
+  global.BoardUI = {
+    icons: ICONS, icon: icon, esc: esc, toast: toast, modal: modal, confirm: confirmDialog,
+    download: download, debounce: debounce, delta: delta, statusBadge: statusBadge,
+    medallion: medallion, empty: empty, pctOf: pctOf, clamp: clamp
+  };
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+  <script>
+/* 同盟战功统计看板 · 应用层 */
+(function () {
+  'use strict';
+
+  const D = window.BoardData;
+  const U = window.BoardUI;
+  const C = window.BoardCharts;
+  const esc = U.esc;
+
+  const view = document.getElementById('view');
+  const state = {
+    date: null,
+    dashboard: { trend: 'warMerit', activity: 'rising' },
+    ranking: { sort: 'warMerit', clan: '', region: '', q: '', page: 1 },
+    clan: { sort: 'warMerit' },
+    copper: { level: 9, player: '' },
+    admin: { tab: 'import', preview: null, error: '', importDate: '', mode: 'insert', success: null, copperFilter: 'all' },
+    memberTrend: 'warMerit'
+  };
+  let chartJobs = [];
+  let currentPath = '/dashboard';
+  let lastBreakpoint = null;
+
+  D.init();
+  state.date = D.latestDate();
+
+  /* ---------------- 小工具 ---------------- */
+  function fmtTime(iso) {
+    if (!iso) return '--';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '--';
+    return pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  }
+  function pad2(n) { return String(n).padStart(2, '0'); }
+  function getDate() {
+    if (state.date && D.dates().indexOf(state.date) >= 0) return state.date;
+    return D.latestDate();
+  }
+  function sortCopy(list, fn) { return list.slice().sort(fn); }
+  function val(name) { return 'value="' + esc(name) + '"'; }
+  function clanTag(name) {
+    let h = 0;
+    const s = String(name || '');
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    const hue = Math.abs(h) % 360;
+    return '<span class="tag tag--clan" style="border-color:hsla(' + hue + ',42%,62%,.32);background:hsla(' + hue + ',42%,55%,.1);color:hsl(' + hue + ',55%,76%)">' + esc(name) + '</span>';
+  }
+  function statusText(status) {
+    return D.statusInfo(status).label;
+  }
+  function basisLabel(d) {
+    return d.changeBasis === 'weekAgo' ? '较上周同日' : d.changeBasis === 'prev' ? '较昨日' : '';
+  }
+  function pageHead(o) {
+    return '<div class="page-head">' +
+      '<div class="page-head__icon">' + U.icon(o.icon || 'dashboard', 22) + '</div>' +
+      '<div class="page-head__main">' +
+      '<h1 class="page-head__title"><span class="gold-text">' + esc(o.title) + '</span></h1>' +
+      (o.sub ? '<p class="page-head__sub">' + esc(o.sub) + '</p>' : '') +
+      (o.meta ? '<div class="page-head__meta">' + o.meta + '</div>' : '') +
+      '</div>' +
+      (o.actions ? '<div class="page-head__actions">' + o.actions + '</div>' : '') +
+      '</div>';
+  }
+  function dateField() {
+    const dates = D.dates().slice().reverse();
+    const sel = getDate();
+    return '<div class="field date-field"><span class="field__label">战报日期</span><select class="select" data-filter="date" aria-label="战报日期">' +
+      dates.map((d) => '<option value="' + d + '"' + (d === sel ? ' selected' : '') + '>' + d + ' · ' + D.weekday(d) + '</option>').join('') +
+      '</select></div>';
+  }
+  function metricCard(o) {
+    return '<div class="metric">' +
+      '<div class="metric__top"><span class="metric__label">' + esc(o.label) + '</span><span class="metric__icon">' + U.icon(o.icon, 14) + '</span></div>' +
+      '<div class="metric__value">' + o.value + '</div>' +
+      '<div class="metric__foot">' + (o.foot || '<span class="metric__sub">' + esc(o.sub || '') + '</span>') + '</div>' +
+      (o.spark ? '<div class="metric__spark">' + C.spark(o.spark, o.color) + '</div>' : '') +
+      (o.badge ? '<div class="metric__badge">' + o.badge + '</div>' : '') +
+      '</div>';
+  }
+  function queueChart(fn) { chartJobs.push(fn); }
+  function flushCharts() {
+    const jobs = chartJobs;
+    chartJobs = [];
+    jobs.forEach((fn) => { try { fn(); } catch (err) { console.error(err); } });
+  }
+  function navigate(path, replace) {
+    const target = '#' + path;
+    if (location.hash === target) { render(); return; }
+    if (replace) history.replaceState(null, '', target);
+    else location.hash = target;
+    if (replace) render();
+  }
+  function parseHash() {
+    let raw = location.hash.replace(/^#/, '') || '/dashboard';
+    raw = raw.split('?')[0];
+    const parts = raw.split('/').filter(Boolean).map((p) => {
+      try { return decodeURIComponent(p); } catch (err) { return p; }
+    });
+    let path = '/' + parts.join('/');
+    if (path === '/') path = '/dashboard';
+    return { path: path, parts: parts };
+  }
+  function setActiveNav(path) {
+    let key = '/dashboard';
+    if (path.indexOf('/ranking') === 0 || path.indexOf('/member') === 0) key = '/ranking';
+    else if (path.indexOf('/clan') === 0) key = '/clan';
+    else if (path.indexOf('/copper') === 0) key = '/copper';
+    else if (path.indexOf('/admin') === 0) key = '/admin';
+    document.querySelectorAll('[data-route]').forEach((el) => {
+      el.classList.toggle('is-active', el.getAttribute('data-route') === key);
+    });
+  }
+  function updateChrome() {
+    const d = getDate();
+    const sideDate = document.getElementById('side-date');
+    const sideWeek = document.getElementById('side-week');
+    const topDate = document.getElementById('top-date');
+    if (sideDate) sideDate.textContent = d ? d : '暂无数据';
+    if (sideWeek) sideWeek.textContent = d ? D.weekday(d) + ' · ' + D.weekRangeLabel(d) : '导入后自动生成';
+    if (topDate) topDate.textContent = d ? D.shortDate(d) : '暂无数据';
+  }
+  function renderView(html) {
+    chartJobs = [];
+    view.innerHTML = html;
+    updateChrome();
+    setActiveNav(currentPath);
+    requestAnimationFrame(() => { flushCharts(); afterRender(); });
+  }
+
+  /* ---------------- 路由 ---------------- */
+  function render() {
+    const r = parseHash();
+    currentPath = r.path;
+    const parts = r.parts;
+    if (!D.dates().length && parts[0] !== 'admin') {
+      renderWelcome();
+      return;
+    }
+    if (parts[0] === 'ranking') { document.title = '全盟排行 · 九天揽月楼'; return renderRanking(); }
+    if (parts[0] === 'clan' && parts[1]) { document.title = parts[1] + ' · 门阀详情'; return renderClanDetail(parts[1]); }
+    if (parts[0] === 'clan') { document.title = '门阀排行 · 九天揽月楼'; return renderClans(); }
+    if (parts[0] === 'member' && parts[1]) { document.title = parts[1] + ' · 战绩史册'; return renderMember(parts[1]); }
+    if (parts[0] === 'copper') { document.title = '铜矿报备 · 九天揽月楼'; return renderCopper(); }
+    if (parts[0] === 'admin') {
+      document.title = '管理中心 · 九天揽月楼';
+      if (parts[1]) state.admin.tab = parts[1];
+      return renderAdmin();
+    }
+    document.title = '同盟战功统计看板 · 九天揽月楼';
+    return renderDashboard();
+  }
+
+  /* ---------------- 仪表盘 ---------------- */
+  function renderDashboard() {
+    const date = getDate();
+    const d = D.dashboard(date);
+    if (!d) return renderWelcome();
+    const info = D.statusInfo(d.status);
+    const basis = basisLabel(d);
+    const daily = (base) => D.dailyLabel(d.status, base);
+    const trendMetric = state.dashboard.trend;
+    const trendMeta = {
+      warMerit: { label: '战功', color: C.COLORS.gold, icon: 'sword' },
+      contribution: { label: '贡献', color: C.COLORS.cinnabar, icon: 'coins' },
+      assist: { label: '助攻', color: C.COLORS.blue, icon: 'users' }
+    }[trendMetric];
+    const activeRate = d.totalMembers ? ((d.activeMembers / d.totalMembers) * 100).toFixed(1) : '0.0';
+    const stateCount = new Set(d.members.map((m) => m.stateName)).size;
+    const ch = D.changes(date);
+
+    const metrics =
+      '<div class="metrics metrics--six">' +
+      metricCard({
+        label: daily('今日战功'), icon: 'sword', value: D.fmt(d.totals.warMeritDaily),
+        foot: U.delta(d.changes.warMerit, basis || '暂无对比'),
+        spark: d.trend.map((t) => t.warMeritDaily), color: C.COLORS.gold
+      }) +
+      metricCard({
+        label: daily('今日贡献'), icon: 'coins', value: D.fmt(d.totals.contributionDaily),
+        foot: U.delta(d.changes.contribution, basis || '暂无对比'),
+        spark: d.trend.map((t) => t.contributionDaily), color: C.COLORS.cinnabar
+      }) +
+      metricCard({
+        label: daily('今日助攻'), icon: 'users', value: D.fmt(d.totals.assistDaily),
+        foot: U.delta(d.changes.assist, basis || '暂无对比'),
+        spark: d.trend.map((t) => t.assistDaily), color: C.COLORS.blue
+      }) +
+      metricCard({
+        label: '活跃成员数', icon: 'activity', value: d.activeMembers.toLocaleString('zh-CN'),
+        sub: '/ ' + d.totalMembers + ' 人 · 活跃率 ' + activeRate + '%'
+      }) +
+      metricCard({
+        label: '门阀总数', icon: 'shield', value: d.totalClans.toLocaleString('zh-CN'),
+        sub: '覆盖 ' + stateCount + ' 个州'
+      }) +
+      metricCard({
+        label: '全盟成员', icon: 'users', value: d.totalMembers.toLocaleString('zh-CN'),
+        sub: ch ? '新增 ' + ch.added.length + ' · 流失 ' + ch.lost.length : '暂无变动数据'
+      }) +
+      '</div>';
+
+    const demoNotice = D.isDemo()
+      ? '<div class="notice"><span class="notice__icon">' + U.icon('sparkles', 17) + '</span>' +
+        '<div class="notice__text"><b>正在浏览演示数据</b>　导入第一份真实战报后，演示数据会自动清空。</div>' +
+        '<button class="btn btn--xs btn--ghost notice__action" type="button" data-action="import">导入战报</button></div>'
+      : '';
+    const statusNotice = d.status !== 'normal'
+      ? '<div class="notice notice--' + info.tone + '"><span class="notice__icon">' + U.icon('info', 17) + '</span>' +
+        '<div class="notice__text">' + esc(info.desc) + '</div></div>'
+      : '';
+
+    const trendCard =
+      '<div class="card card--ornate col-span-2">' +
+      '<div class="card__head">' +
+      '<span class="card__icon">' + U.icon('activity', 14) + '</span>' +
+      '<div><div class="card__title">战功走势</div><div class="card__sub">最近 ' + d.trend.length + ' 天 · 每日增量</div></div>' +
+      '<div class="card__actions"><div class="seg seg--plain">' +
+      ['warMerit', 'contribution', 'assist'].map((k) => '<button type="button" class="seg__btn' + (trendMetric === k ? ' is-active' : '') + '" data-action="trend-metric" data-metric="' + k + '">' + { warMerit: '战功', contribution: '贡献', assist: '助攻' }[k] + '</button>').join('') +
+      '</div></div></div>' +
+      '<div class="chart" data-chart="trend"></div>' +
+      '<div class="card__foot row row--between"><span class="tiny muted">共 ' + d.trend.length + ' 天有基线数据</span><span class="tiny muted">周一自动识别新周</span></div>' +
+      '</div>';
+
+    const clanBarCard =
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon">' + U.icon('shield', 14) + '</span>' +
+      '<div><div class="card__title">门阀' + daily('今日战功') + '对比</div><div class="card__sub">按当日增量排序 · 前 8 个门阀</div></div></div>' +
+      (d.clans.length ? '<div class="chart" data-chart="clan-bar"></div>' : U.empty('shield', '暂无门阀数据', '导入包含门阀列的战报后自动统计')) +
+      '</div>';
+
+    const activityRows = state.dashboard.activity === 'rising'
+      ? (d.rising.length
+        ? d.rising.map((it, i) =>
+          '<div class="mini-row"><span class="mini-row__rank">' + (i + 1) + '</span>' +
+          '<div class="mini-row__main"><a class="mini-row__name" href="#/member/' + encodeURIComponent(it.member.name) + '">' + esc(it.member.name) + '</a>' +
+          '<div class="mini-row__sub">' + esc(it.member.clanName) + '</div></div>' +
+          '<span class="mini-row__value">' + (it.growth != null ? '+' + D.fmt(it.growth) : D.fmt(it.member.warMeritDaily)) + '</span></div>').join('')
+        : U.empty('flame', '暂无冲榜数据', '需要前一日基线才能计算增长'))
+      : (d.inactive.length
+        ? d.inactive.map((it, i) =>
+          '<div class="mini-row"><span class="mini-row__rank">' + (i + 1) + '</span>' +
+          '<div class="mini-row__main"><a class="mini-row__name" href="#/member/' + encodeURIComponent(it.member.name) + '">' + esc(it.member.name) + '</a>' +
+          '<div class="mini-row__sub">' + esc(it.member.clanName) + ' · 活跃度 ' + it.member.activityScore.toFixed(1) + '</div></div>' +
+          '<span class="badge badge--muted badge--sm">连续 ' + it.days + ' 天</span></div>').join('')
+        : U.empty('shieldCheck', '全员在线，无划水成员', '当日战功与贡献均大于 0'));
+
+    const activityCard =
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon card__icon--red">' + U.icon('flame', 14) + '</span>' +
+      '<div><div class="card__title">活跃度监测</div><div class="card__sub">' + (state.dashboard.activity === 'rising' ? '战功增长最快的成员' : '连续未出力的成员') + '</div></div>' +
+      '<div class="card__actions"><div class="seg seg--plain">' +
+      '<button type="button" class="seg__btn' + (state.dashboard.activity === 'rising' ? ' is-active' : '') + '" data-action="activity-tab" data-tab="rising">冲榜</button>' +
+      '<button type="button" class="seg__btn' + (state.dashboard.activity === 'inactive' ? ' is-active' : '') + '" data-action="activity-tab" data-tab="inactive">划水</button>' +
+      '</div></div></div>' +
+      '<div class="list-scroll">' + activityRows + '</div>' +
+      (d.rising.length && state.dashboard.activity === 'rising' ? '<div class="card__foot tiny muted">对比口径：' + esc(d.rising[0].basis || '较昨日') + '</div>' : '') +
+      '</div>';
+
+    const clanActivityItems = sortCopy(d.clans, (a, b) => b.avgActivityScore - a.avgActivityScore).slice(0, 8)
+      .map((c) => ({ label: c.clanName, value: c.avgActivityScore, display: c.avgActivityScore.toFixed(1), unit: '分' }));
+    const clanActivityCard =
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon card__icon--jade">' + U.icon('activity', 14) + '</span>' +
+      '<div><div class="card__title">门阀活跃度均值</div><div class="card__sub">活跃度 = 贡献 30% + 战功 50% + 助攻 20%</div></div></div>' +
+      C.hbars(clanActivityItems, { max: 100 }) +
+      '</div>';
+
+    const leaderDefs = [
+      { key: 'warMeritDaily', label: '战功' },
+      { key: 'contributionDaily', label: '贡献' },
+      { key: 'assistDaily', label: '助攻' }
+    ];
+    const leaderRows = leaderDefs.map((def) => {
+      const top = d.members.slice().sort((a, b) => b[def.key] - a[def.key])[0];
+      if (!top) return '';
+      return '<div class="mini-row"><span class="badge badge--gold badge--sm" style="width:38px;justify-content:center">' + def.label + '</span>' +
+        '<div class="mini-row__main"><a class="mini-row__name" href="#/member/' + encodeURIComponent(top.name) + '">' + esc(top.name) + '</a>' +
+        '<div class="mini-row__sub">' + esc(top.clanName) + '</div></div>' +
+        '<span class="mini-row__value">' + D.fmt(top[def.key]) + '</span></div>';
+    }).join('');
+    const leadersCard =
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon card__icon--red">' + U.icon('crown', 14) + '</span>' +
+      '<div><div class="card__title">单项榜首</div><div class="card__sub">当日战功 / 贡献 / 助攻</div></div></div>' +
+      '<div class="mini-list">' + leaderRows + '</div>' +
+      '</div>';
+
+    const changeCard =
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('users', 14) + '</span>' +
+      '<div><div class="card__title">人员变动</div><div class="card__sub">' + (ch ? '与 ' + ch.prevDate + ' 对比' : '需要至少两天的战报') + '</div></div>' +
+      (ch ? '<div class="card__actions"><button type="button" class="btn btn--xs btn--ghost" data-action="view-changes" data-date="' + date + '">查看全部</button></div>' : '') +
+      '</div>' +
+      (ch
+        ? '<div class="change-grid">' +
+          '<div class="change-box"><div class="change-box__num change-box__num--up">+' + ch.added.length + '</div><div class="change-box__label">新入成员</div></div>' +
+          '<div class="change-box"><div class="change-box__num change-box__num--down">-' + ch.lost.length + '</div><div class="change-box__label">流失成员</div></div>' +
+          '<div class="change-box"><div class="change-box__num change-box__num--move">' + ch.transfers.length + '</div><div class="change-box__label">门阀调动</div></div>' +
+          '</div>' +
+          (ch.added.length || ch.lost.length || ch.transfers.length
+            ? '<div class="change-list">' +
+              ch.added.slice(0, 3).map((m) => '<span class="change-chip change-chip--up">+ ' + esc(m.name) + '</span>').join('') +
+              ch.lost.slice(0, 3).map((m) => '<span class="change-chip change-chip--down">- ' + esc(m.name) + '</span>').join('') +
+              ch.transfers.slice(0, 2).map((m) => '<span class="change-chip">' + esc(m.name) + ' → ' + esc(m.to) + '</span>').join('') +
+              '</div>'
+            : '<div class="tiny muted" style="margin-top:9px">当日人员无变动</div>')
+        : U.empty('users', '暂无变动数据', '导入第二天战报后自动对比')) +
+      '</div>';
+
+    renderView(
+      pageHead({
+        icon: 'dashboard',
+        title: '同盟战功统计看板',
+        sub: '九天揽月楼 · 数据快照 · ' + D.weekRangeLabel(date),
+        meta: U.statusBadge(d.status) + '<span class="tiny muted">最近更新 ' + fmtTime(d.importedAt) + '</span>',
+        actions: dateField() + '<button class="btn btn--gold" type="button" data-action="import" aria-label="导入战报">' + U.icon('upload', 15) + '<span>导入战报</span></button>'
+      }) +
+      '<div class="stack-gap">' +
+      demoNotice + statusNotice +
+      metrics +
+      '<div class="grid grid--2">' + trendCard + clanBarCard + activityCard + clanActivityCard + '<div class="stack-gap">' + changeCard + leadersCard + '</div>' + '</div>' +
+      '<div class="page-foot"><span class="seal">盟</span>数据口径：当日增量 = 今日本周累计 − 昨日本周累计 · 周一自动识别新周</div>' +
+      '</div>'
+    );
+
+    queueChart(() => {
+      const el = document.querySelector('[data-chart="trend"]');
+      if (!el) return;
+      C.mount(el, C.line, {
+        labels: d.trend.map((t) => D.shortDate(t.date)),
+        values: d.trend.map((t) => t[trendMetric + 'Daily']),
+        color: trendMeta.color,
+        name: trendMeta.label,
+        height: 238,
+        label: trendMeta.label + '走势图'
+      });
+    });
+    queueChart(() => {
+      const el = document.querySelector('[data-chart="clan-bar"]');
+      if (!el) return;
+      const items = d.clans.slice(0, 8).map((c) => ({ label: c.clanName, value: c.warMeritDaily }));
+      C.mount(el, C.bar, { items: items, color: C.COLORS.gold, name: '战功', height: 260, label: '门阀战功对比' });
+    });
+  }
+
+  /* ---------------- 全盟排行 ---------------- */
+  function renderRanking() {
+    const date = getDate();
+    const d = D.day(date);
+    if (!d) return renderWelcome();
+    const f = state.ranking;
+    const sortDefs = [
+      { key: 'warMerit', field: 'warMeritDaily', label: '今日战功', daily: true },
+      { key: 'contribution', field: 'contributionDaily', label: '今日贡献', daily: true },
+      { key: 'assist', field: 'assistDaily', label: '今日助攻', daily: true },
+      { key: 'activity', field: 'activityScore', label: '活跃度', daily: true, score: true },
+      { key: 'warMeritTotal', field: 'warMeritTotal', label: '战功总量' },
+      { key: 'contributionTotal', field: 'contributionTotal', label: '贡献总量' }
+    ];
+    const sort = sortDefs.find((s) => s.key === f.sort) || sortDefs[0];
+    const clans = sortCopy(Array.from(new Set(d.members.map((m) => m.clanName))), (a, b) => a.localeCompare(b, 'zh'));
+    const regions = sortCopy(Array.from(new Set(d.members.map((m) => m.stateName))), (a, b) => a.localeCompare(b, 'zh'));
+    if (f.clan && clans.indexOf(f.clan) < 0) f.clan = '';
+    if (f.region && regions.indexOf(f.region) < 0) f.region = '';
+    const q = f.q.trim().toLowerCase();
+    let list = d.members.filter((m) => {
+      if (f.clan && m.clanName !== f.clan) return false;
+      if (f.region && m.stateName !== f.region) return false;
+      if (q && m.name.toLowerCase().indexOf(q) < 0 && m.clanName.toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    list = sortCopy(list, (a, b) => (b[sort.field] - a[sort.field]) || a.name.localeCompare(b.name, 'zh'));
+    const pageSize = 50;
+    const pages = Math.max(1, Math.ceil(list.length / pageSize));
+    if (f.page > pages) f.page = pages;
+    if (f.page < 1) f.page = 1;
+    const pageList = list.slice((f.page - 1) * pageSize, f.page * pageSize);
+    const label = sort.daily ? D.dailyLabel(d.status, sort.label) : sort.label;
+    const valOf = (m) => sort.score ? m[sort.field].toFixed(1) : D.fmt(m[sort.field]);
+
+    const filters =
+      '<div class="card card--flat"><div class="filters">' +
+      '<div class="field field--grow"><span class="field__label">搜索成员</span><div class="search-wrap">' + U.icon('search', 15) +
+      '<input class="input" id="ranking-search" data-filter="search" type="search" value="' + esc(f.q) + '" placeholder="昵称或门阀…" autocomplete="off"></div></div>' +
+      '<div class="field"><span class="field__label">战报日期</span><select class="select" data-filter="date">' +
+      D.dates().slice().reverse().map((x) => '<option value="' + x + '"' + (x === date ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div>' +
+      '<div class="field"><span class="field__label">门阀</span><select class="select" data-filter="clan"><option value="">全部门阀</option>' +
+      clans.map((c) => '<option value="' + esc(c) + '"' + (c === f.clan ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select></div>' +
+      '<div class="field"><span class="field__label">州</span><select class="select" data-filter="region"><option value="">全部州</option>' +
+      regions.map((r) => '<option value="' + esc(r) + '"' + (r === f.region ? ' selected' : '') + '>' + esc(r) + '</option>').join('') + '</select></div>' +
+      '</div>' +
+      '<div style="margin-top:12px" class="seg seg--scroll seg--grid3">' +
+      sortDefs.map((s) => '<button type="button" class="seg__btn' + (s.key === sort.key ? ' is-active' : '') + '" data-action="rank-sort" data-sort="' + s.key + '">' + (s.daily ? D.dailyLabel(d.status, s.label) : s.label) + '</button>').join('') +
+      '</div></div>';
+
+    const rows = pageList.map((m) => {
+      const href = '#/member/' + encodeURIComponent(m.name);
+      return '<tr>' +
+        '<td>' + U.medallion(m.warMeritRank, true) + '</td>' +
+        '<td class="tiny muted tabular">#' + m.clanRank + '</td>' +
+        '<td><div class="cell-main"><a href="' + href + '">' + esc(m.name) + '</a>' + (m.isNew ? '<span class="badge badge--jade badge--sm">新入</span>' : '') + '</div><div class="cell-sub">' + esc(m.stateName) + '</div></td>' +
+        '<td>' + clanTag(m.clanName) + '</td>' +
+        '<td class="tiny muted">' + esc(m.stateName) + '</td>' +
+        '<td class="num">' + valOf(m) + '</td>' +
+        '<td class="num num--muted">' + D.fmt(m.powerValue) + '</td>' +
+        '</tr>';
+    }).join('');
+
+    const table =
+      '<div class="table-wrap desktop-only"><table class="data-table">' +
+      '<thead><tr><th>排名</th><th>门阀内</th><th>成员</th><th>门阀</th><th>州</th><th class="right">' + esc(label) + '</th><th class="right">势力值</th></tr></thead>' +
+      '<tbody>' + rows + '</tbody></table>' +
+      '<div class="table-foot"><span>共 <b class="gold">' + list.length + '</b> 位成员</span>' +
+      '<div class="pager"><button class="pager__btn" type="button" data-action="rank-page" data-page="' + (f.page - 1) + '"' + (f.page <= 1 ? ' disabled' : '') + ' aria-label="上一页">' + U.icon('chevronLeft', 15) + '</button>' +
+      '<span class="pager__info">第 <b>' + f.page + '</b> / ' + pages + ' 页</span>' +
+      '<button class="pager__btn" type="button" data-action="rank-page" data-page="' + (f.page + 1) + '"' + (f.page >= pages ? ' disabled' : '') + ' aria-label="下一页">' + U.icon('chevronRight', 15) + '</button></div></div></div>';
+
+    const cards = pageList.map((m) => {
+      const href = '#/member/' + encodeURIComponent(m.name);
+      return '<a class="rank-card" href="' + href + '">' +
+        U.medallion(m.warMeritRank) +
+        '<div class="rank-card__main"><div class="rank-card__name">' + esc(m.name) + (m.isNew ? '<span class="badge badge--jade badge--sm">新入</span>' : '') + '</div>' +
+        '<div class="rank-card__meta">' + clanTag(m.clanName) + '<span>' + esc(m.stateName) + '</span></div></div>' +
+        '<div class="rank-card__value"><b>' + valOf(m) + '</b><span>' + esc(label) + '</span></div></a>';
+    }).join('');
+
+    const mobilePager = '<div class="card card--flat row row--between"><span class="tiny muted">共 ' + list.length + ' 位 · 第 ' + f.page + '/' + pages + ' 页</span>' +
+      '<div class="pager"><button class="pager__btn" type="button" data-action="rank-page" data-page="' + (f.page - 1) + '"' + (f.page <= 1 ? ' disabled' : '') + '>' + U.icon('chevronLeft', 15) + '</button>' +
+      '<button class="pager__btn" type="button" data-action="rank-page" data-page="' + (f.page + 1) + '"' + (f.page >= pages ? ' disabled' : '') + '>' + U.icon('chevronRight', 15) + '</button></div></div>';
+
+    renderView(
+      pageHead({
+        icon: 'trophy',
+        title: '全盟排行',
+        sub: '查看同盟成员战功、贡献与活跃度排名',
+        meta: U.statusBadge(d.status) + '<span class="tiny muted">' + D.weekRangeLabel(date) + '</span>'
+      }) +
+      '<div class="stack-gap">' +
+      filters +
+      (list.length
+        ? '<div class="mobile-list">' + cards + mobilePager + '</div>' + table
+        : '<div class="card">' + U.empty('search', '暂无排行数据', '请检查筛选条件或更换日期') + '</div>') +
+      '</div>'
+    );
+  }
+
+  /* ---------------- 门阀排行 ---------------- */
+  function renderClans() {
+    const date = getDate();
+    const d = D.day(date);
+    if (!d) return renderWelcome();
+    const f = state.clan;
+    const sortDefs = [
+      { key: 'warMerit', label: '今日战功', daily: true },
+      { key: 'contribution', label: '今日贡献', daily: true },
+      { key: 'assist', label: '今日助攻', daily: true },
+      { key: 'activity', label: '活跃度均值' },
+      { key: 'memberCount', label: '成员数' },
+      { key: 'warMeritTotal', label: '战功总量' }
+    ];
+    const sort = sortDefs.find((s) => s.key === f.sort) || sortDefs[0];
+    const valueOf = (c) => {
+      if (sort.key === 'activity') return c.avgActivityScore;
+      if (sort.key === 'memberCount') return c.memberCount;
+      if (sort.key === 'contribution') return c.contributionDaily;
+      if (sort.key === 'assist') return c.assistDaily;
+      if (sort.key === 'warMeritTotal') return c.warMeritTotal;
+      return c.warMeritDaily;
+    };
+    const clans = sortCopy(d.clans, (a, b) => valueOf(b) - valueOf(a)).map((c, i) => Object.assign({}, c, { viewRank: i + 1 }));
+    const label = sort.daily ? D.dailyLabel(d.status, sort.label) : sort.label;
+    const activeRate = d.totalMembers ? ((d.activeMembers / d.totalMembers) * 100).toFixed(1) : '0.0';
+
+    const cards = clans.map((c) => {
+      const value = valueOf(c);
+      const display = sort.key === 'activity' ? value.toFixed(1) + ' 分' : sort.key === 'memberCount' ? value + ' 人' : D.fmt(value);
+      return '<div class="clan-card">' +
+        '<div class="clan-card__head">' + U.medallion(c.viewRank) +
+        '<div class="clan-card__title"><div class="clan-card__name">' + esc(c.clanName) + '</div><div class="clan-card__meta">' + c.memberCount + ' 名成员 · ' + esc(c.stateName) + ' · 活跃 ' + c.activeCount + '</div></div>' +
+        '<div class="clan-card__value"><b>' + display + '</b><span>' + esc(label) + '</span></div></div>' +
+        '<div class="clan-card__stats">' +
+        '<div class="clan-card__stat"><em>' + D.dailyLabel(d.status, '今日战功') + '</em><b>' + D.fmt(c.warMeritDaily) + '</b></div>' +
+        '<div class="clan-card__stat"><em>' + D.dailyLabel(d.status, '今日贡献') + '</em><b>' + D.fmt(c.contributionDaily) + '</b></div>' +
+        '<div class="clan-card__stat"><em>' + D.dailyLabel(d.status, '今日助攻') + '</em><b>' + D.fmt(c.assistDaily) + '</b></div>' +
+        '</div>' +
+        '<div class="clan-card__bar"><div class="clan-card__bar-head"><span>活跃度均值</span><b>' + c.avgActivityScore.toFixed(1) + ' / 100</b></div>' +
+        '<div class="progress"><span style="width:' + Math.min(100, c.avgActivityScore) + '%"></span></div></div>' +
+        '<div class="clan-card__foot"><a class="btn btn--sm btn--ghost" href="#/clan/' + encodeURIComponent(c.clanName) + '">查看门阀 ' + U.icon('chevronRight', 14) + '</a></div>' +
+        '</div>';
+    }).join('');
+
+    renderView(
+      pageHead({
+        icon: 'shield',
+        title: '门阀排行',
+        sub: '按门阀汇总战功、贡献、助攻与活跃度',
+        meta: U.statusBadge(d.status) + '<span class="tiny muted">' + D.weekRangeLabel(date) + '</span>',
+        actions: dateField()
+      }) +
+      '<div class="stack-gap">' +
+      '<div class="metrics">' +
+      metricCard({ label: '门阀总数', icon: 'shield', value: String(d.totalClans), sub: '个门阀' }) +
+      metricCard({ label: '全盟成员', icon: 'users', value: String(d.totalMembers), sub: '名成员' }) +
+      metricCard({ label: '活跃成员', icon: 'activity', value: String(d.activeMembers), sub: '活跃率 ' + activeRate + '%' }) +
+      metricCard({ label: D.dailyLabel(d.status, '今日战功'), icon: 'sword', value: D.fmt(d.totals.warMeritDaily), sub: '全盟合计' }) +
+      '</div>' +
+      '<div class="card card--flat"><div class="seg seg--scroll seg--grid3">' +
+      sortDefs.map((s) => '<button type="button" class="seg__btn' + (s.key === sort.key ? ' is-active' : '') + '" data-action="clan-sort" data-sort="' + s.key + '">' + (s.daily ? D.dailyLabel(d.status, s.label) : s.label) + '</button>').join('') +
+      '</div></div>' +
+      (clans.length ? '<div class="clan-grid">' + cards + '</div>' : '<div class="card">' + U.empty('shield', '暂无门阀数据', '导入战报后自动生成') + '</div>') +
+      '</div>'
+    );
+  }
+
+  /* ---------------- 门阀详情 ---------------- */
+  function renderClanDetail(name) {
+    const date = getDate();
+    const detail = D.clanDetail(name, date);
+    if (!detail) {
+      renderView('<a class="back-link" href="#/clan">' + U.icon('arrowLeft', 14) + ' 返回门阀排行</a>' +
+        '<div class="card">' + U.empty('shield', '未找到门阀「' + name + '」', '该门阀在当前战报中不存在，请切换日期') + '</div>');
+      return;
+    }
+    const c = detail.stat;
+    const d = detail.day;
+    const st = D.statusInfo(d.status);
+    const history = detail.history;
+    const memberRows = detail.members.map((m) => '<tr>' +
+      '<td>' + U.medallion(m.clanRank, true) + '</td>' +
+      '<td><a href="#/member/' + encodeURIComponent(m.name) + '">' + esc(m.name) + '</a></td>' +
+      '<td class="tiny muted">' + esc(m.stateName) + '</td>' +
+      '<td class="num">' + D.fmt(m.warMeritDaily) + '</td>' +
+      '<td class="num">' + D.fmt(m.contributionDaily) + '</td>' +
+      '<td class="num">' + D.fmt(m.assistDaily) + '</td>' +
+      '<td class="num">' + m.activityScore.toFixed(1) + '</td>' +
+      '<td class="num num--muted">' + D.fmt(m.warMeritTotal) + '</td>' +
+      '</tr>').join('');
+    const topItems = detail.members.slice(0, 6).map((m) => ({ label: m.name, value: m.warMeritDaily }));
+
+    renderView(
+      '<a class="back-link" href="#/clan">' + U.icon('arrowLeft', 14) + ' 返回门阀排行</a>' +
+      pageHead({
+        icon: 'shield',
+        title: name,
+        sub: c.stateName + ' · ' + c.memberCount + ' 名成员 · 活跃 ' + c.activeCount + ' 人',
+        meta: U.statusBadge(d.status) + '<span class="badge badge--muted">全盟第 ' + c.rank + ' 名</span><span class="tiny muted">' + D.weekRangeLabel(date) + '</span>',
+        actions: dateField()
+      }) +
+      '<div class="stack-gap">' +
+      '<div class="metrics">' +
+      metricCard({ label: D.dailyLabel(d.status, '今日战功'), icon: 'sword', value: D.fmt(c.warMeritDaily), sub: '本周总量 ' + D.fmt(c.warMeritTotal) }) +
+      metricCard({ label: D.dailyLabel(d.status, '今日贡献'), icon: 'coins', value: D.fmt(c.contributionDaily), sub: '本周总量 ' + D.fmt(c.contributionTotal) }) +
+      metricCard({ label: D.dailyLabel(d.status, '今日助攻'), icon: 'users', value: D.fmt(c.assistDaily), sub: '本周总量 ' + D.fmt(c.assistTotal) }) +
+      metricCard({ label: '活跃度均值', icon: 'activity', value: c.avgActivityScore.toFixed(1), sub: '满分 100 · ' + esc(st.label) }) +
+      '</div>' +
+      '<div class="grid grid--2">' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon">' + U.icon('activity', 14) + '</span><div><div class="card__title">门阀战功走势</div><div class="card__sub">最近 ' + history.length + ' 天 · 每日增量</div></div></div><div class="chart" data-chart="clan-trend"></div></div>' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon card__icon--red">' + U.icon('crown', 14) + '</span><div><div class="card__title">成员战功榜</div><div class="card__sub">前 6 名 · ' + D.dailyLabel(d.status, '今日战功') + '</div></div></div>' + C.hbars(topItems) + '</div>' +
+      '</div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon">' + U.icon('users', 14) + '</span><div><div class="card__title">成员明细</div><div class="card__sub">按' + D.dailyLabel(d.status, '今日战功') + '排序</div></div></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>门阀内</th><th>成员</th><th>州</th><th class="right">战功</th><th class="right">贡献</th><th class="right">助攻</th><th class="right">活跃度</th><th class="right">战功总量</th></tr></thead><tbody>' + memberRows + '</tbody></table></div>' +
+      '</div>' +
+      '</div>'
+    );
+
+    queueChart(() => {
+      const el = document.querySelector('[data-chart="clan-trend"]');
+      if (!el) return;
+      C.mount(el, C.line, {
+        labels: history.map((h) => D.shortDate(h.date)),
+        values: history.map((h) => h.warMeritDaily),
+        color: C.COLORS.gold,
+        name: '战功',
+        height: 230,
+        label: '门阀战功走势'
+      });
+    });
+  }
+
+  /* ---------------- 成员详情 ---------------- */
+  function renderMember(name) {
+    const profile = D.memberProfile(name);
+    if (!profile) {
+      renderView('<a class="back-link" href="#/ranking">' + U.icon('arrowLeft', 14) + ' 返回全盟排行</a>' +
+        '<div class="card">' + U.empty('users', '未找到成员「' + name + '」', '该成员不在任何一份战报中') + '</div>');
+      return;
+    }
+    const latest = profile.latest;
+    const d = profile.day;
+    const hist = profile.history.slice(-14);
+    const metric = state.memberTrend;
+    const meta = {
+      warMerit: { label: '战功', color: C.COLORS.gold },
+      contribution: { label: '贡献', color: C.COLORS.cinnabar },
+      assist: { label: '助攻', color: C.COLORS.blue }
+    }[metric];
+    const rows = profile.history.slice().reverse().map((h) => '<tr>' +
+      '<td class="mono tiny">' + h.date + '</td>' +
+      '<td>' + clanTag(h.clanName) + '</td>' +
+      '<td class="num">' + D.fmt(h.warMeritDaily) + '</td>' +
+      '<td class="num">' + D.fmt(h.contributionDaily) + '</td>' +
+      '<td class="num">' + D.fmt(h.assistDaily) + '</td>' +
+      '<td class="num num--muted">' + D.fmt(h.warMeritTotal) + '</td>' +
+      '<td class="num num--muted">' + D.fmt(h.contributionTotal) + '</td>' +
+      '<td class="num num--muted">' + D.fmt(h.powerValue) + '</td>' +
+      '</tr>').join('');
+    const note = latest.date !== getDate() ? '<div class="notice notice--blue"><span class="notice__icon">' + U.icon('info', 17) + '</span><div class="notice__text">所选日期 ' + getDate() + ' 的战报中没有该成员，以下展示其最近一次数据（' + latest.date + '）。</div></div>' : '';
+
+    renderView(
+      '<a class="back-link" href="#/ranking">' + U.icon('arrowLeft', 14) + ' 返回全盟排行</a>' +
+      pageHead({
+        icon: 'users',
+        title: name,
+        sub: latest.clanName + ' · ' + latest.stateName + ' · 势力值 ' + D.fmt(profile.powerValue),
+        meta: '<span class="badge badge--gold">全盟战功第 ' + latest.warMeritRank + '</span><span class="badge badge--muted">门阀内第 ' + latest.clanRank + '</span>' +
+          (latest.date !== getDate() ? '<span class="tiny muted">统计至 ' + latest.date + '</span>' : '') +
+          '<a class="badge badge--muted" href="#/clan/' + encodeURIComponent(latest.clanName) + '">查看门阀</a>'
+      }) +
+      '<div class="stack-gap">' +
+      note +
+      '<div class="metrics">' +
+      metricCard({ label: D.dailyLabel(d.status, '今日战功'), icon: 'sword', value: D.fmt(latest.warMeritDaily), sub: '本周总量 ' + D.fmt(latest.warMeritTotal) }) +
+      metricCard({ label: D.dailyLabel(d.status, '今日贡献'), icon: 'coins', value: D.fmt(latest.contributionDaily), sub: '本周总量 ' + D.fmt(latest.contributionTotal) }) +
+      metricCard({ label: D.dailyLabel(d.status, '今日助攻'), icon: 'users', value: D.fmt(latest.assistDaily), sub: '本周总量 ' + D.fmt(latest.assistTotal) }) +
+      metricCard({ label: '活跃度', icon: 'activity', value: latest.activityScore.toFixed(1), sub: '全盟第 ' + latest.activityRank + ' 名' }) +
+      '</div>' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon">' + U.icon('activity', 14) + '</span><div><div class="card__title">个人走势</div><div class="card__sub">最近 ' + hist.length + ' 天 · 每日增量</div></div>' +
+      '<div class="card__actions"><div class="seg seg--plain">' +
+      ['warMerit', 'contribution', 'assist'].map((k) => '<button type="button" class="seg__btn' + (metric === k ? ' is-active' : '') + '" data-action="member-metric" data-metric="' + k + '">' + { warMerit: '战功', contribution: '贡献', assist: '助攻' }[k] + '</button>').join('') +
+      '</div></div></div><div class="chart" data-chart="member-trend"></div></div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('scroll', 14) + '</span><div><div class="card__title">战绩史册</div><div class="card__sub">共 ' + profile.history.length + ' 天记录</div></div></div>' +
+      '<div class="table-wrap"><table class="data-table"><thead><tr><th>日期</th><th>门阀</th><th class="right">战功日增</th><th class="right">贡献日增</th><th class="right">助攻日增</th><th class="right">战功总量</th><th class="right">贡献总量</th><th class="right">势力值</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+      '</div>'
+    );
+
+    queueChart(() => {
+      const el = document.querySelector('[data-chart="member-trend"]');
+      if (!el) return;
+      C.mount(el, C.line, {
+        labels: hist.map((h) => D.shortDate(h.date)),
+        values: hist.map((h) => h[metric + 'Daily']),
+        color: meta.color,
+        name: meta.label,
+        height: 238,
+        label: '个人' + meta.label + '走势'
+      });
+    });
+  }
+
+  /* ---------------- 铜矿报备 ---------------- */
+  function balanceHTML(name, level) {
+    const cost = D.copperCost[level] || D.copperCost[9];
+    if (!name) {
+      return '<div class="tiny muted center" style="padding:16px 6px">输入玩家名字后，显示本周可用战功</div>';
+    }
+    const bal = D.copperBalance(name);
+    if (!bal.found) {
+      return '<div class="notice notice--red"><span class="notice__icon">' + U.icon('alert', 16) + '</span><div class="notice__text">最新战报中未找到「' + esc(name) + '」，请确认游戏内角色名与战报一致。</div></div>';
+    }
+    const remain = bal.available - cost;
+    return '<div class="balance">' +
+      '<div class="balance__item"><em>本周战功总数</em><b>' + D.fmt(bal.total) + '</b></div>' +
+      '<div class="balance__item"><em>本周已兑换 / 待结算</em><b>' + D.fmt(bal.settled + bal.pending) + '</b></div>' +
+      '<div class="balance__item"><em>可用余额</em><b>' + D.fmt(bal.available) + '</b></div>' +
+      '<div class="balance__item"><em>本次扣除</em><b>' + D.fmt(cost) + '</b></div>' +
+      '<div class="balance__item balance__item--wide' + (remain < 0 ? ' balance__item--neg' : '') + '"><em>本次扣除后剩余</em><b>' + D.fmt(remain) + '</b></div>' +
+      '</div>' +
+      (remain < 0 ? '<div class="field__error" style="margin-top:8px">可用战功不足，无法兑换 ' + level + ' 级矿</div>' : '');
+  }
+  function reportStatusBadge(status) {
+    if (status === 'pending') return '<span class="badge badge--gold">待结算</span>';
+    if (status === 'settled') return '<span class="badge badge--jade">已结算</span>';
+    return '<span class="badge badge--muted">已撤销</span>';
+  }
+  function inlineBalance(name, level) {
+    const n = String(name || '').trim();
+    if (!n) return '';
+    const bal = D.copperBalance(n);
+    if (!bal.found) return '最新战报中未找到该玩家';
+    const cost = D.copperCost[level] || D.copperCost[9];
+    return '本周可用 ' + D.fmt(bal.available) + ' · 本次需 ' + D.fmt(cost);
+  }
+
+  function renderCopper() {
+    const date = getDate();
+    const d = D.day(date);
+    if (!d) return renderWelcome();
+    const members = d.members.slice().sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+    const reports = D.copperList();
+    const level = state.copper.level;
+    const player = state.copper.player;
+    const rows = reports.slice(0, 40).map((r) => '<tr>' +
+      '<td class="mono tiny">' + fmtTime(r.createdAt) + '</td>' +
+      '<td><a href="#/member/' + encodeURIComponent(r.player) + '">' + esc(r.player) + '</a></td>' +
+      '<td class="mono tiny">' + esc(r.coordinate) + '</td>' +
+      '<td><span class="badge badge--muted">' + r.level + ' 级矿</span></td>' +
+      '<td class="num">' + D.fmt(r.deducted) + '</td>' +
+      '<td>' + reportStatusBadge(r.status) + '</td>' +
+      '<td class="right">' + (r.status === 'pending' ? '<button class="btn btn--xs btn--danger" type="button" data-action="copper-cancel" data-id="' + esc(r.id) + '">撤销</button>' : '<span class="tiny muted">—</span>') + '</td>' +
+      '</tr>').join('');
+
+    renderView(
+      pageHead({
+        icon: 'gem',
+        title: '铜矿报备',
+        sub: '战功兑换铜矿开采权 · 提交后由管理员结算',
+        meta: U.statusBadge(d.status) + '<span class="tiny muted">' + date + '</span><a class="badge badge--muted" href="#/admin/copper">结算管理</a>'
+      }) +
+      '<div class="stack-gap">' +
+      '<div class="grid grid--2">' +
+      '<div class="card card--ornate">' +
+      '<div class="card__head"><span class="card__icon">' + U.icon('pickaxe', 14) + '</span><div><div class="card__title">提交铜矿报备</div><div class="card__sub">填写坐标、矿等级与游戏角色名</div></div></div>' +
+      '<form id="copper-form" class="stack" autocomplete="off">' +
+      '<div class="field"><label class="field__label" for="copper-player">玩家名字</label>' +
+      '<input class="input" id="copper-player" name="player" list="copper-players" value="' + esc(player) + '" placeholder="请填写游戏内角色名" required>' +
+      '<datalist id="copper-players">' + members.map((m) => '<option value="' + esc(m.name) + '">' + esc(m.clanName) + '</option>').join('') + '</datalist>' +
+      '<span class="field__hint">名字需与最新战报一致，可输入关键字从成员中选择</span>' +
+      '<span class="field__hint" id="copper-inline">' + inlineBalance(player, level) + '</span></div>' +
+      '<div class="field"><label class="field__label" for="copper-coordinate">铜矿坐标</label>' +
+      '<input class="input" id="copper-coordinate" name="coordinate" placeholder="如 132,456" required>' +
+      '<span class="field__hint">按游戏内坐标填写，如 132,456</span></div>' +
+      '<div class="field"><span class="field__label">矿等级</span>' +
+      '<div class="level-options">' +
+      '<div class="level-option"><input type="radio" id="level-9" name="level" value="9"' + (level === 9 ? ' checked' : '') + '><label for="level-9"><b>9 级矿</b><span>扣除 5 万战功</span></label></div>' +
+      '<div class="level-option"><input type="radio" id="level-10" name="level" value="10"' + (level === 10 ? ' checked' : '') + '><label for="level-10"><b>10 级矿</b><span>扣除 10 万战功</span></label></div>' +
+      '</div></div>' +
+      '<div class="field"><label class="field__label" for="copper-note">备注（可选）</label>' +
+      '<input class="input" id="copper-note" name="note" placeholder="如：今晚开采，请盟主结算" maxlength="60"></div>' +
+      '<button class="btn btn--gold btn--block" type="submit" id="copper-submit">' + U.icon('check', 15) + '<span id="copper-cost">提交报备 · 扣除 5 万战功</span></button>' +
+      '</form></div>' +
+      '<div class="stack-gap">' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon card__icon--jade">' + U.icon('coins', 14) + '</span><div><div class="card__title">战功余额</div><div class="card__sub">本周（' + esc(D.weekRangeLabel(date)) + '）</div></div></div>' +
+      '<div id="copper-balance">' + balanceHTML(player, level) + '</div></div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--red">' + U.icon('info', 14) + '</span><div class="card__title">兑换规则</div></div>' +
+      '<div class="rule-list">' +
+      '<div class="row">' + U.icon('check', 14) + '<span>9 级矿：扣除 <b>5 万</b> 战功</span></div>' +
+      '<div class="row">' + U.icon('check', 14) + '<span>10 级矿：扣除 <b>10 万</b> 战功</span></div>' +
+      '<div class="row">' + U.icon('clock', 14) + '<span>提报后进入「待结算」，管理员结算后正式扣除</span></div>' +
+      '<div class="row">' + U.icon('alert', 14) + '<span>撤销待结算报备会返还占用额度</span></div>' +
+      '</div></div>' +
+      '</div></div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('scroll', 14) + '</span><div><div class="card__title">报备记录</div><div class="card__sub">最近 40 条 · 共 ' + D.copperStats().total + ' 条</div></div>' +
+      '<div class="card__actions"><a class="btn btn--xs btn--ghost" href="#/admin/copper">前往结算</a></div></div>' +
+      (reports.length ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>时间</th><th>玩家</th><th>坐标</th><th>等级</th><th class="right">扣除战功</th><th>状态</th><th class="right">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : U.empty('gem', '暂无报备记录', '填写上方表单，提交第一条铜矿报备')) +
+      '</div></div>'
+    );
+  }
+
+  /* ---------------- 管理中心 ---------------- */
+  const ADMIN_TABS = [
+    { key: 'import', label: '数据导入', icon: 'upload' },
+    { key: 'history', label: '往期数据', icon: 'archive' },
+    { key: 'weights', label: '活跃度设置', icon: 'sliders' },
+    { key: 'copper', label: '铜矿管理', icon: 'gem' },
+    { key: 'data', label: '备份与数据', icon: 'database' }
+  ];
+  function renderAdmin() {
+    const tab = ADMIN_TABS.some((t) => t.key === state.admin.tab) ? state.admin.tab : 'import';
+    state.admin.tab = tab;
+    const body = tab === 'history' ? adminHistory()
+      : tab === 'weights' ? adminWeights()
+        : tab === 'copper' ? adminCopper()
+          : tab === 'data' ? adminData()
+            : adminImport();
+    renderView(
+      pageHead({
+        icon: 'settings',
+        title: '管理中心',
+        sub: '数据导入 · 历史浏览 · 权重配置 · 铜矿结算',
+        meta: '<span class="badge badge--muted">' + D.dates().length + ' 份战报</span><span class="tiny muted">数据保存在本机浏览器</span><a class="badge badge--muted" href="#/dashboard">返回看板</a>'
+      }) +
+      '<div class="stack-gap">' +
+      '<div class="seg seg--scroll seg--grid3 admin-tabs">' +
+      ADMIN_TABS.map((t) => '<button type="button" class="seg__btn' + (t.key === tab ? ' is-active' : '') + '" data-action="admin-tab" data-tab="' + t.key + '">' + U.icon(t.icon, 14) + ' ' + t.label + '</button>').join('') +
+      '</div>' + body + '</div>'
+    );
+  }
+
+  function adminImport() {
+    const preview = state.admin.preview;
+    const success = state.admin.success;
+    const importDate = state.admin.importDate || (preview && preview.date) || '';
+    const existing = importDate && D.day(importDate) ? D.day(importDate) : null;
+    const mode = state.admin.mode;
+    const logs = D.importLogs().slice(0, 6);
+
+    const successHTML = success
+      ? '<div class="notice notice--jade"><span class="notice__icon">' + U.icon('check', 17) + '</span><div class="notice__text"><b>导入成功</b>　' + success.date + ' · ' + success.memberCount + ' 名成员 · ' + success.clanCount + ' 个门阀' + (success.saved ? '' : '（本地存储写入失败，请立即导出备份）') + '</div></div>' +
+      '<div class="row" style="margin-top:9px"><a class="btn btn--gold btn--sm" href="#/dashboard">查看仪表盘</a><button class="btn btn--ghost btn--sm" type="button" data-action="pick-csv">继续导入</button></div>'
+      : '';
+
+    const errorHTML = state.admin.error
+      ? '<div class="notice notice--red"><span class="notice__icon">' + U.icon('alert', 17) + '</span><div class="notice__text">' + esc(state.admin.error) + '</div></div>'
+      : '';
+
+    const previewHTML = preview
+      ? '<div class="card card--ornate" style="margin-top:14px">' +
+        '<div class="card__head"><span class="card__icon">' + U.icon('file', 14) + '</span><div><div class="card__title">战报预览</div><div class="card__sub">确认无误后录入当日快照</div></div></div>' +
+        '<div class="preview__row"><span>战报名</span><span class="mono tiny">' + esc(preview.fileName) + '</span></div>' +
+        '<div class="preview__row"><span>战报日期</span><span><input class="input" style="height:34px;width:160px;display:inline-block" type="date" data-admin-date value="' + esc(importDate) + '">' +
+        '<span class="tiny ' + (preview.dateSource === 'filename' ? 'jade' : 'muted') + '" style="margin-left:8px">' + (preview.dateSource === 'filename' ? '已从文件名识别' : '未识别，请手动选择') + '</span></span></div>' +
+        '<div class="preview__stats">' +
+        '<div class="preview__stat"><em>成员数量</em><b>' + preview.memberCount + '</b></div>' +
+        '<div class="preview__stat"><em>门阀数量</em><b>' + preview.clanCount + '</b></div>' +
+        '<div class="preview__stat"><em>州数量</em><b>' + preview.stateCount + '</b></div>' +
+        '</div>' +
+        '<div class="preview__row"><span>成员示例</span><span>' + preview.sampleMembers.map(esc).join('，') + '</span></div>' +
+        '<div class="preview__row"><span>门阀名录</span><span class="chips">' + preview.clans.map((c) => '<span class="chip">' + esc(c) + '</span>').join('') + '</span></div>' +
+        (preview.warnings.length ? '<div class="notice" style="margin-top:9px"><span class="notice__icon">' + U.icon('alert', 16) + '</span><div class="notice__text">' + preview.warnings.map(esc).join('<br>') + '</div></div>' : '') +
+        (D.isDemo() ? '<div class="notice" style="margin-top:9px"><span class="notice__icon">' + U.icon('sparkles', 16) + '</span><div class="notice__text">当前为演示数据，确认导入后将自动清空演示快照。</div></div>' : '') +
+        (existing
+          ? '<div class="notice" style="margin-top:10px"><span class="notice__icon">' + U.icon('alert', 16) + '</span><div class="notice__text"><b>该日已有战报</b>（' + existing.totalMembers + ' 人），请选择处理方式：</div></div>' +
+            '<div class="seg" style="margin-top:9px"><button type="button" class="seg__btn' + (mode === 'overwrite' ? ' is-active' : '') + '" data-action="admin-mode" data-mode="overwrite">覆盖旧档</button>' +
+            '<button type="button" class="seg__btn' + (mode === 'skip' ? ' is-active' : '') + '" data-action="admin-mode" data-mode="skip">跳过此报</button></div>'
+          : '<div class="notice notice--jade" style="margin-top:10px"><span class="notice__icon">' + U.icon('check', 16) + '</span><div class="notice__text">该日尚无战报，将以新增模式录入。</div></div>') +
+        '<div class="card__foot"><button class="btn btn--gold btn--block" type="button" data-action="confirm-import"' + (!importDate ? ' disabled' : '') + '>' + U.icon('upload', 15) + '确认录入战报</button></div>' +
+        '</div>'
+      : '';
+
+    return '<div class="import-layout">' +
+      '<div class="stack-gap">' +
+      '<div class="card card--ornate">' +
+      '<div class="dropzone" id="dropzone" role="button" tabindex="0">' +
+      '<div class="dropzone__icon">' + U.icon('upload', 34) + '</div>' +
+      '<div class="dropzone__title">拖拽 CSV 战报到这里，或点击选择文件</div>' +
+      '<div class="dropzone__desc">仅支持 .csv 格式 · 文件不会上传到服务器，只在本机解析</div>' +
+      '<div class="dropzone__hint">· 战功 · 贡献 · 助攻 · 门阀 ·</div>' +
+      '</div>' +
+      '<div class="row row--between" style="margin-top:10px"><span class="tiny muted">支持逗号 / 制表符分隔，自动识别常见表头</span>' +
+      '<button class="btn btn--xs btn--ghost" type="button" data-action="download-template">' + U.icon('download', 13) + '下载模板</button></div>' +
+      successHTML + errorHTML + previewHTML +
+      '</div>' +
+      '</div>' +
+      '<div class="import-side">' +
+      '<div class="card"><div class="card__head"><span class="card__icon">' + U.icon('clock', 14) + '</span><div><div class="card__title">导入记录</div><div class="card__sub">最近 ' + logs.length + ' 次</div></div></div>' +
+      (logs.length ? '<div class="log-list">' + logs.map((l) => '<div class="log-item"><div class="log-item__head"><span class="log-item__date">' + l.date + '</span><span class="badge badge--jade badge--sm">成功</span></div>' +
+        '<div class="log-item__name">' + esc(l.fileName) + '</div><div class="log-item__meta"><span>' + l.memberCount + ' 人</span><span>' + l.clanCount + ' 门阀</span><span>' + fmtTime(l.importedAt) + '</span></div></div>').join('') + '</div>'
+        : '<div class="tiny muted center" style="padding:18px 0">暂无导入记录</div>') +
+      '</div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('info', 14) + '</span><div class="card__title">战报口径说明</div></div>' +
+      '<div class="help-list">' +
+      '<div><span class="dot">·</span><b>本周累计 ≠ 当日值：</b>CSV 里的「贡献本周 / 战功本周 / 助攻本周」是本周累计值，不是当日值。</div>' +
+      '<div><span class="dot">·</span><b>当日增量：</b>当日增量 = 今日本周值 − 昨日本周值。</div>' +
+      '<div><span class="dot">·</span><b>首次导入：</b>暂无昨日基线，所有「当日」指标实际为本周累计，标注为「本周至今 · 无基线」。</div>' +
+      '<div><span class="dot">·</span><b>周一重置：</b>新一周开始自动识别，当日值按新周累计展示。</div>' +
+      '<div><span class="dot">·</span><b>活跃度：</b>贡献 30% + 战功 50% + 助攻 20%，可在「活跃度设置」中调整。</div>' +
+      '</div></div>' +
+      '</div></div>';
+  }
+
+  function adminHistory() {
+    const dates = D.dates().slice().reverse();
+    const rows = dates.map((date) => {
+      const d = D.day(date);
+      const info = D.statusInfo(d.status);
+      return '<tr>' +
+        '<td><div class="cell-main"><span class="mono">' + date + '</span>' + U.statusBadge(d.status, true) + '</div><div class="cell-sub">' + D.weekday(date) + ' · ' + D.weekRangeLabel(date) + '</div></td>' +
+        '<td class="num">' + d.totalMembers + '</td>' +
+        '<td class="num">' + d.totalClans + '</td>' +
+        '<td class="num num--muted">' + D.fmt(d.totals.warMeritTotal) + '</td>' +
+        '<td class="tiny muted">' + fmtTime(d.importedAt) + '</td>' +
+        '<td class="right"><div class="row" style="justify-content:flex-end;gap:4px">' +
+        '<button class="btn btn--xs btn--ghost" type="button" data-action="view-date" data-date="' + date + '">查看</button>' +
+        '<button class="btn btn--xs btn--ghost" type="button" data-action="view-changes" data-date="' + date + '">变动</button>' +
+        '<button class="btn btn--xs btn--danger" type="button" data-action="delete-snapshot" data-date="' + date + '">删除</button>' +
+        '</div></td></tr>';
+    }).join('');
+    const logs = D.importLogs();
+    return '<div class="stack-gap">' +
+      '<div class="card"><div class="card__head"><span class="card__icon">' + U.icon('archive', 14) + '</span><div><div class="card__title">史册快照</div><div class="card__sub">共 ' + dates.length + ' 天 · 删除快照会同时移除对应导入记录</div></div></div>' +
+      (dates.length ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>战报日期</th><th class="right">成员</th><th class="right">门阀</th><th class="right">战功总量</th><th>导入时间</th><th class="right">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : U.empty('archive', '暂无史册数据', '导入第一份战报后生成')) +
+      '</div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('clock', 14) + '</span><div><div class="card__title">导入日志</div><div class="card__sub">最近 ' + Math.min(logs.length, 30) + ' 条</div></div></div>' +
+      (logs.length ? '<div class="log-list">' + logs.slice(0, 30).map((l) => '<div class="log-item"><div class="log-item__head"><span class="log-item__date">' + l.date + '</span><span class="badge badge--muted badge--sm">' + (l.mode === 'overwrite' ? '覆盖' : '新增') + '</span></div>' +
+        '<div class="log-item__name">' + esc(l.fileName) + '</div><div class="log-item__meta"><span>' + l.memberCount + ' 人</span><span>' + l.clanCount + ' 门阀</span><span>' + fmtTime(l.importedAt) + '</span></div></div>').join('') + '</div>'
+        : '<div class="tiny muted center" style="padding:18px 0">暂无日志</div>') +
+      '</div></div>';
+  }
+
+  function adminWeights() {
+    const w = D.weights();
+    const rows = [
+      { key: 'warMerit', label: '战功权重' },
+      { key: 'contribution', label: '贡献权重' },
+      { key: 'assist', label: '助攻权重' }
+    ];
+    return '<div class="grid grid--2">' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon">' + U.icon('sliders', 14) + '</span><div><div class="card__title">活跃度权重设置</div><div class="card__sub">三项权重之和必须为 100%</div></div></div>' +
+      '<form id="weights-form" class="stack">' +
+      rows.map((r) => '<div class="weight-row"><label>' + r.label + '</label>' +
+        '<input type="range" min="0" max="100" step="1" value="' + w[r.key] + '" data-weight-range="' + r.key + '">' +
+        '<input class="input" type="number" min="0" max="100" step="1" value="' + w[r.key] + '" data-weight-num="' + r.key + '"></div>').join('') +
+      '<div class="row row--between"><span class="weight-sum" id="weight-sum">权重之和 <b id="weight-sum-value">100</b>%</span>' +
+      '<span class="tiny muted">标准：战功 50 · 贡献 30 · 助攻 20</span></div>' +
+      '<div class="row"><button class="btn btn--gold" type="submit">' + U.icon('check', 15) + '保存权重</button>' +
+      '<button class="btn btn--ghost" type="button" data-action="reset-weights">恢复默认</button></div>' +
+      '</form></div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--jade">' + U.icon('activity', 14) + '</span><div class="card__title">计算口径</div></div>' +
+      '<div class="help-list">' +
+      '<div><span class="dot">·</span>活跃度得分采用 <b>min-max 归一化</b> 后加权求和：当日战功、当日贡献、当日助攻分别归一化到 0–1。</div>' +
+      '<div><span class="dot">·</span>最终得分 = (战功归一值 × 战功权重 + 贡献归一值 × 贡献权重 + 助攻归一值 × 助攻权重) × 100。</div>' +
+      '<div><span class="dot">·</span>权重保存在本机浏览器，修改后「全盟排行」「门阀排行」的活跃度会立即重算。</div>' +
+      '<div><span class="dot">·</span>清除浏览器数据会恢复默认权重，请定期在「备份与数据」中导出备份。</div>' +
+      '</div></div></div>';
+  }
+
+  function adminCopper() {
+    const stats = D.copperStats();
+    const filter = state.admin.copperFilter;
+    const all = D.copperList();
+    const list = filter === 'all' ? all : all.filter((r) => r.status === filter);
+    const rows = list.slice(0, 80).map((r) => '<tr>' +
+      '<td class="mono tiny">' + fmtTime(r.createdAt) + '</td>' +
+      '<td><a href="#/member/' + encodeURIComponent(r.player) + '">' + esc(r.player) + '</a></td>' +
+      '<td class="mono tiny">' + esc(r.coordinate) + '</td>' +
+      '<td><span class="badge badge--muted">' + r.level + ' 级</span></td>' +
+      '<td class="num">' + D.fmt(r.deducted) + '</td>' +
+      '<td>' + reportStatusBadge(r.status) + '</td>' +
+      '<td class="right"><div class="row" style="justify-content:flex-end;gap:4px">' +
+      (r.status === 'pending'
+        ? '<button class="btn btn--xs btn--gold" type="button" data-action="copper-settle" data-id="' + esc(r.id) + '">结算</button>' +
+          '<button class="btn btn--xs btn--danger" type="button" data-action="copper-void" data-id="' + esc(r.id) + '">撤销</button>'
+        : '<span class="tiny muted">—</span>') +
+      '</div></td></tr>').join('');
+    return '<div class="stack-gap">' +
+      '<div class="metrics">' +
+      metricCard({ label: '今日报备数', icon: 'gem', value: String(stats.todayCount), sub: '条' }) +
+      metricCard({ label: '待结算数', icon: 'clock', value: String(stats.pendingCount), sub: '条' }) +
+      metricCard({ label: '累计兑换战功', icon: 'coins', value: D.fmt(stats.settledTotal), sub: '已结算 ' + stats.settledCount + ' 条' }) +
+      metricCard({ label: '报备总数', icon: 'scroll', value: String(stats.total), sub: '含已撤销' }) +
+      '</div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--jade">' + U.icon('coins', 14) + '</span><div><div class="card__title">铜矿报备管理</div><div class="card__sub">结算后正式扣除战功 · 撤销会返还占用额度</div></div>' +
+      '<div class="card__actions"><div class="seg seg--plain">' +
+      [['all', '全部'], ['pending', '待结算'], ['settled', '已结算'], ['void', '已撤销']].map((x) =>
+        '<button type="button" class="seg__btn' + (filter === x[0] ? ' is-active' : '') + '" data-action="copper-filter" data-filter-value="' + x[0] + '">' + x[1] + '</button>').join('') +
+      '</div></div></div>' +
+      (list.length ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>时间</th><th>玩家</th><th>坐标</th><th>等级</th><th class="right">扣除战功</th><th>状态</th><th class="right">操作</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+        : U.empty('gem', '暂无报备记录', '成员提交铜矿报备后会出现在这里')) +
+      '</div></div>';
+  }
+
+  function adminData() {
+    const bytes = D.storageBytes();
+    const size = bytes > 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : (bytes / 1024).toFixed(1) + ' KB';
+    const dates = D.dates();
+    const members = dates.reduce((s, d) => s + (D.day(d) ? D.day(d).totalMembers : 0), 0);
+    return '<div class="grid grid--2">' +
+      '<div class="card card--ornate"><div class="card__head"><span class="card__icon">' + U.icon('database', 14) + '</span><div><div class="card__title">数据概况</div><div class="card__sub">全部数据保存在本机浏览器</div></div></div>' +
+      '<div class="kv"><span>战报天数</span><span>' + dates.length + ' 天</span></div>' +
+      '<div class="kv"><span>成员记录合计</span><span>' + members + ' 条</span></div>' +
+      '<div class="kv"><span>最早战报</span><span>' + (dates[0] || '—') + '</span></div>' +
+      '<div class="kv"><span>最新战报</span><span>' + (dates[dates.length - 1] || '—') + '</span></div>' +
+      '<div class="kv"><span>铜矿报备</span><span>' + D.copperStats().total + ' 条</span></div>' +
+      '<div class="kv"><span>存储占用</span><span>' + size + '</span></div>' +
+      '<div class="kv"><span>本地存储</span><span>' + (D.storageAvailable() ? '可用' : '不可用（仅本次会话）') + '</span></div>' +
+      '</div>' +
+      '<div class="card"><div class="card__head"><span class="card__icon card__icon--blue">' + U.icon('download', 14) + '</span><div><div class="card__title">备份与迁移</div><div class="card__sub">换手机、清缓存前请先导出</div></div></div>' +
+      '<div class="data-actions">' +
+      '<button class="btn btn--gold" type="button" data-action="export-json">' + U.icon('download', 15) + '导出完整备份</button>' +
+      '<button class="btn btn--ghost" type="button" data-action="import-json">' + U.icon('upload', 15) + '导入备份</button>' +
+      '<button class="btn btn--ghost" type="button" data-action="export-ranking">' + U.icon('file', 15) + '导出当日排行 CSV</button>' +
+      '<button class="btn btn--ghost" type="button" data-action="download-template">' + U.icon('file', 15) + '下载导入模板</button>' +
+      '</div>' +
+      '<div class="divider"></div>' +
+      '<div class="card__head" style="margin-bottom:8px"><span class="card__icon card__icon--red">' + U.icon('alert', 14) + '</span><div class="card__title">危险操作</div></div>' +
+      '<div class="data-actions">' +
+      '<button class="btn btn--ghost" type="button" data-action="load-demo">' + U.icon('sparkles', 15) + '载入演示数据</button>' +
+      '<button class="btn btn--danger" type="button" data-action="clear-all">' + U.icon('trash', 15) + '清空所有数据</button>' +
+      '</div>' +
+      '<p class="tiny muted" style="margin-top:10px">清空后无法恢复，请先导出备份。载入演示数据会替换当前所有战报。</p>' +
+      '</div></div>';
+  }
+
+  /* ---------------- 空数据欢迎页 ---------------- */
+  function renderWelcome() {
+    document.title = '同盟战功统计看板 · 九天揽月楼';
+    renderView(
+      pageHead({
+        icon: 'dashboard',
+        title: '同盟战功统计看板',
+        sub: '每日一份 CSV 战报，掌握全盟作战动态',
+        meta: '<span class="badge badge--gold">九天揽月楼 · 小看板</span>'
+      }) +
+      '<div class="card card--ornate welcome-hero">' +
+      '<div class="welcome-seal">盟</div>' +
+      '<h2 class="gold-text">九天揽月楼小看板</h2>' +
+      '<p>导入游戏导出的 CSV 战报，自动计算当日增量、周度累计、成员排行与门阀贡献。数据只保存在本机浏览器，不上传服务器。</p>' +
+      '<div class="row" style="justify-content:center;flex-wrap:wrap;margin-top:16px">' +
+      '<button class="btn btn--gold" type="button" data-action="import">' + U.icon('upload', 16) + '导入第一份战报</button>' +
+      '<button class="btn btn--ghost" type="button" data-action="load-demo">' + U.icon('sparkles', 16) + '先看看演示数据</button>' +
+      '</div>' +
+      '</div>' +
+      '<div class="steps">' +
+      '<div class="step"><span>壹</span><h3>导出战报</h3><p>每日从游戏内导出同盟成员 CSV，包含成员、门阀、州、势力值、战功本周、贡献本周、助攻本周等列。</p></div>' +
+      '<div class="step"><span>贰</span><h3>导入快照</h3><p>拖入 CSV 即可预览，文件名带日期会自动识别。首次导入没有昨日基线，标注为「本周至今 · 无基线」。</p></div>' +
+      '<div class="step"><span>叁</span><h3>查看排行</h3><p>仪表盘看全盟走势，排行页按战功 / 贡献 / 助攻 / 活跃度排序，门阀页查看各盟贡献对比。</p></div>' +
+      '</div>'
+    );
+  }
+
+  /* ---------------- 操作 ---------------- */
+  function openImport() {
+    state.admin.tab = 'import';
+    if (location.hash !== '#/admin/import') {
+      try { history.replaceState(null, '', '#/admin/import'); } catch (err) { location.hash = '#/admin/import'; }
+      render();
+    }
+    const input = document.getElementById('csv-file');
+    if (input) input.click();
+  }
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const supportsDecoder = typeof TextDecoder === 'function';
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          if (!supportsDecoder) return resolve(String(reader.result || ''));
+          const buffer = reader.result;
+          const bytes = new Uint8Array(buffer);
+          if (bytes.length > 1 && bytes[0] === 0xFF && bytes[1] === 0xFE) {
+            return resolve(new TextDecoder('utf-16le').decode(buffer));
+          }
+          if (bytes.length > 1 && bytes[0] === 0xFE && bytes[1] === 0xFF) {
+            return resolve(new TextDecoder('utf-16be').decode(buffer));
+          }
+          try {
+            return resolve(new TextDecoder('utf-8', { fatal: true }).decode(buffer));
+          } catch (err) {
+            // 中文 Excel 另存的 CSV 常见 GBK / GB18030 编码
+            try { return resolve(new TextDecoder('gb18030').decode(buffer)); } catch (err2) { return resolve(new TextDecoder('utf-8').decode(buffer)); }
+          }
+        } catch (err) { reject(err); }
+      };
+      reader.onerror = () => reject(reader.error || new Error('读取文件失败'));
+      if (supportsDecoder) reader.readAsArrayBuffer(file);
+      else reader.readAsText(file, 'utf-8');
+    });
+  }
+  async function handleCSVFile(file) {
+    if (!file) return;
+    if (!/\.csv$/i.test(file.name)) { U.toast('请选择 .csv 格式的战报文件', 'error'); return; }
+    if (file.size > 15 * 1024 * 1024) { U.toast('文件过大（超过 15MB），请检查后重试', 'error'); return; }
+    let text;
+    try { text = await readFile(file); } catch (err) { U.toast('文件读取失败，请重试', 'error'); return; }
+    let preview;
+    try {
+      preview = D.parseCSV(text, file.name);
+    } catch (err) {
+      state.admin.tab = 'import';
+      state.admin.error = err.message || '文件解析失败，请检查文件格式';
+      state.admin.preview = null;
+      state.admin.success = null;
+      if (location.hash !== '#/admin/import') navigate('/admin/import'); else render();
+      U.toast(state.admin.error, 'error');
+      return;
+    }
+    state.admin.tab = 'import';
+    state.admin.preview = preview;
+    state.admin.error = '';
+    state.admin.success = null;
+    state.admin.importDate = preview.date || '';
+    state.admin.mode = state.admin.importDate && D.day(state.admin.importDate) ? 'overwrite' : 'insert';
+    if (location.hash !== '#/admin/import') navigate('/admin/import'); else render();
+    U.toast('已解析 ' + preview.memberCount + ' 名成员', 'success');
+  }
+  function confirmImport() {
+    const p = state.admin.preview;
+    const date = state.admin.importDate;
+    if (!p) { U.toast('请先选择 CSV 战报文件', 'error'); return; }
+    if (!date) { U.toast('请选择战报日期', 'error'); return; }
+    try {
+      const res = D.commitImport({ date: date, rows: p.rows, fileName: p.fileName, mode: state.admin.mode });
+      if (res.skipped) {
+        U.toast('已跳过该日战报', 'info');
+        state.admin.preview = null;
+        render();
+        return;
+      }
+      state.admin.success = res;
+      state.admin.preview = null;
+      state.date = date;
+      state.ranking.page = 1;
+      render();
+      U.toast('战报导入成功，共 ' + res.memberCount + ' 名成员', 'success');
+      if (!D.saveOk()) U.toast('本地存储写入失败，请立即在「备份与数据」中导出备份', 'error');
+    } catch (err) {
+      U.toast(err.message || '导入失败', 'error');
+    }
+  }
+  function viewChanges(date) {
+    const ch = D.changes(date);
+    if (!ch) {
+      U.modal({ title: '人员变动 · ' + date, body: '<p class="modal__text">这是第一份战报，暂无前一日数据可供对比。</p>' });
+      return;
+    }
+    const total = ch.added.length + ch.lost.length + ch.transfers.length;
+    let body = '<div class="change-grid">' +
+      '<div class="change-box"><div class="change-box__num change-box__num--up">+' + ch.added.length + '</div><div class="change-box__label">新入成员</div></div>' +
+      '<div class="change-box"><div class="change-box__num change-box__num--down">-' + ch.lost.length + '</div><div class="change-box__label">流失成员</div></div>' +
+      '<div class="change-box"><div class="change-box__num change-box__num--move">' + ch.transfers.length + '</div><div class="change-box__label">门阀调动</div></div>' +
+      '</div>';
+    if (!total && !ch.stateMoves.length) body += '<p class="modal__text" style="margin-top:12px">当天成员与门阀均无变化。</p>';
+    if (ch.added.length) body += '<div class="divider"></div><div class="section-title">新入成员</div><div class="change-list">' + ch.added.map((m) => '<span class="change-chip change-chip--up">+ ' + esc(m.name) + ' · ' + esc(m.clanName) + '</span>').join('') + '</div>';
+    if (ch.lost.length) body += '<div class="divider"></div><div class="section-title">流失成员</div><div class="change-list">' + ch.lost.map((m) => '<span class="change-chip change-chip--down">- ' + esc(m.name) + ' · ' + esc(m.clanName) + '</span>').join('') + '</div>';
+    if (ch.transfers.length) body += '<div class="divider"></div><div class="section-title">门阀调动</div><div class="change-list">' + ch.transfers.map((m) => '<span class="change-chip">' + esc(m.name) + '：' + esc(m.from) + ' → ' + esc(m.to) + '</span>').join('') + '</div>';
+    if (ch.stateMoves.length) body += '<div class="divider"></div><div class="section-title">州变动</div><div class="change-list">' + ch.stateMoves.map((m) => '<span class="change-chip">' + esc(m.name) + '：' + esc(m.from) + ' → ' + esc(m.to) + '</span>').join('') + '</div>';
+    U.modal({ title: '人员变动 · ' + date + '（对比 ' + ch.prevDate + '）', body: body, wide: true });
+  }
+  function csvCell(v) {
+    const s = String(v == null ? '' : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  function exportRanking() {
+    const date = getDate();
+    const d = D.day(date);
+    if (!d) { U.toast('暂无可导出的战报', 'error'); return; }
+    const list = sortCopy(d.members, (a, b) => b.warMeritDaily - a.warMeritDaily);
+    const header = ['排名', '成员', '门阀', '州', '势力值', '战功日增', '贡献日增', '助攻日增', '活跃度', '战功总量'];
+    const lines = [header.join(',')].concat(list.map((m, i) => [i + 1, m.name, m.clanName, m.stateName, m.powerValue, m.warMeritDaily, m.contributionDaily, m.assistDaily, m.activityScore, m.warMeritTotal].map(csvCell).join(',')));
+    U.download('战功排行_' + date + '.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+    U.toast('已导出当日排行 CSV', 'success');
+  }
+  function downloadTemplate() {
+    const lines = [
+      '成员,门阀,州,势力值,战功本周,贡献本周,助攻本周,捐献本周',
+      '云中月,九天揽月,并州,5200000,860000,120000,60000,30000',
+      '北陌,九天揽月,并州,4800000,720000,98000,52000,24000',
+      '江左梅郎,龙渊,冀州,5100000,790000,105000,48000,20000'
+    ];
+    U.download('同盟战报模板.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+    U.toast('模板已下载，可直接用 Excel 打开填写', 'success');
+  }
+  function weightValues() {
+    const out = {};
+    document.querySelectorAll('[data-weight-num]').forEach((el) => {
+      out[el.getAttribute('data-weight-num')] = Math.max(0, Math.min(100, Number(el.value) || 0));
+    });
+    return out;
+  }
+  function refreshWeightSum() {
+    const v = weightValues();
+    const sum = (v.warMerit || 0) + (v.contribution || 0) + (v.assist || 0);
+    const wrap = document.getElementById('weight-sum');
+    const label = document.getElementById('weight-sum-value');
+    if (label) label.textContent = String(sum);
+    if (wrap) wrap.classList.toggle('is-bad', sum !== 100);
+  }
+  function updateCopperPanel() {
+    const input = document.getElementById('copper-player');
+    const name = input ? input.value.trim() : state.copper.player;
+    state.copper.player = name;
+    const checked = document.querySelector('input[name="level"]:checked');
+    const level = checked ? Number(checked.value) : state.copper.level;
+    state.copper.level = level;
+    const box = document.getElementById('copper-balance');
+    if (box) box.innerHTML = balanceHTML(name, level);
+    const cost = document.getElementById('copper-cost');
+    if (cost) cost.textContent = '提交报备 · 扣除 ' + D.fmt(D.copperCost[level]) + ' 战功';
+    const inline = document.getElementById('copper-inline');
+    if (inline) inline.textContent = inlineBalance(name, level);
+  }
+  function afterRender() {
+    const dz = document.getElementById('dropzone');
+    if (dz) {
+      dz.addEventListener('click', (e) => {
+        if (e.target.closest('[data-action]')) return;
+        const input = document.getElementById('csv-file');
+        if (input) input.click();
+      });
+      dz.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const input = document.getElementById('csv-file');
+          if (input) input.click();
+        }
+      });
+      ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => {
+        e.preventDefault();
+        dz.classList.add('is-drag');
+      }));
+      ['dragleave', 'dragend'].forEach((ev) => dz.addEventListener(ev, () => dz.classList.remove('is-drag')));
+      dz.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dz.classList.remove('is-drag');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file) handleCSVFile(file);
+      });
+    }
+  }
+
+  /* ---------------- 事件 ---------------- */
+  function onClick(e) {
+    const target = e.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.getAttribute('data-action');
+    const ds = target.dataset;
+    if (action === 'import' || action === 'pick-csv' || action === 'go-import') { openImport(); return; }
+    if (action === 'trend-metric') { state.dashboard.trend = ds.metric; render(); return; }
+    if (action === 'activity-tab') { state.dashboard.activity = ds.tab; render(); return; }
+    if (action === 'rank-sort') { state.ranking.sort = ds.sort; state.ranking.page = 1; render(); return; }
+    if (action === 'clan-sort') { state.clan.sort = ds.sort; render(); return; }
+    if (action === 'member-metric') { state.memberTrend = ds.metric; render(); return; }
+    if (action === 'rank-page') {
+      const p = Number(ds.page);
+      if (p >= 1) { state.ranking.page = p; render(); }
+      return;
+    }
+    if (action === 'view-changes') { viewChanges(ds.date); return; }
+    if (action === 'view-date') { state.date = ds.date; state.ranking.page = 1; navigate('/dashboard'); return; }
+    if (action === 'admin-tab') {
+      state.admin.tab = ds.tab;
+      if (location.hash !== '#/admin/' + ds.tab) navigate('/admin/' + ds.tab); else render();
+      return;
+    }
+    if (action === 'admin-mode') { state.admin.mode = ds.mode; render(); return; }
+    if (action === 'confirm-import') { confirmImport(); return; }
+    if (action === 'delete-snapshot') {
+      const date = ds.date;
+      U.confirm({ title: '删除战报', message: '确定删除 ' + date + ' 的战报快照吗？删除后无法恢复，相关导入记录也会一并移除。', confirmText: '删除', danger: true }).then((ok) => {
+        if (!ok) return;
+        D.deleteSnapshot(date);
+        if (!D.dates().length) state.date = null;
+        else if (state.date === date) state.date = D.latestDate();
+        render();
+        U.toast('已删除 ' + date + ' 的战报', 'success');
+      });
+      return;
+    }
+    if (action === 'reset-weights') {
+      D.resetWeights();
+      render();
+      U.toast('已恢复默认权重：战功 50 / 贡献 30 / 助攻 20', 'success');
+      return;
+    }
+    if (action === 'export-json') {
+      U.download('同盟战功备份_' + D.todayKey() + '.json', D.exportJSON(), 'application/json');
+      U.toast('备份已导出，请妥善保存', 'success');
+      return;
+    }
+    if (action === 'import-json') {
+      const input = document.getElementById('json-file');
+      if (input) input.click();
+      return;
+    }
+    if (action === 'export-ranking') { exportRanking(); return; }
+    if (action === 'download-template') { downloadTemplate(); return; }
+    if (action === 'load-demo') {
+      U.confirm({ title: '载入演示数据', message: '将用一套演示战报替换当前所有数据（含铜矿报备），方便快速体验。确定继续？', confirmText: '载入演示', danger: true }).then((ok) => {
+        if (!ok) return;
+        D.loadDemo();
+        state.date = D.latestDate();
+        state.ranking.page = 1;
+        state.admin.success = null;
+        navigate('/dashboard');
+        U.toast('演示数据已载入', 'success');
+      });
+      return;
+    }
+    if (action === 'clear-all') {
+      U.confirm({ title: '清空所有数据', message: '将删除全部战报、权重设置与铜矿报备，且无法恢复。建议先导出备份。确定清空？', confirmText: '全部清空', danger: true }).then((ok) => {
+        if (!ok) return;
+        D.clearAll();
+        state.date = null;
+        state.admin.preview = null;
+        state.admin.success = null;
+        navigate('/dashboard');
+        U.toast('所有数据已清空', 'success');
+      });
+      return;
+    }
+    if (action === 'copper-settle') {
+      if (D.settleCopper(ds.id)) { render(); U.toast('报备已结算，战功已扣除', 'success'); }
+      return;
+    }
+    if (action === 'copper-void' || action === 'copper-cancel') {
+      U.confirm({ title: '撤销报备', message: '确定撤销这条铜矿报备吗？占用的战功额度会返还。', confirmText: '撤销', danger: true }).then((ok) => {
+        if (!ok) return;
+        if (D.voidCopper(ds.id)) { render(); U.toast('报备已撤销', 'success'); }
+      });
+      return;
+    }
+    if (action === 'copper-filter') { state.admin.copperFilter = ds.filterValue; render(); return; }
+  }
+
+  function onChange(e) {
+    const filter = e.target.closest('[data-filter]');
+    if (filter) {
+      const kind = filter.getAttribute('data-filter');
+      if (kind === 'date') { state.date = filter.value; state.ranking.page = 1; render(); return; }
+      if (kind === 'clan') { state.ranking.clan = filter.value; state.ranking.page = 1; render(); return; }
+      if (kind === 'region') { state.ranking.region = filter.value; state.ranking.page = 1; render(); return; }
+    }
+    if (e.target.matches('[data-admin-date]')) {
+      state.admin.importDate = e.target.value;
+      state.admin.mode = e.target.value && D.day(e.target.value) ? 'overwrite' : 'insert';
+      render();
+      return;
+    }
+    if (e.target.name === 'level') {
+      state.copper.level = Number(e.target.value) || 9;
+      updateCopperPanel();
+    }
+  }
+
+  let searchTimer = null;
+  let playerTimer = null;
+  function onInput(e) {
+    if (e.target.id === 'ranking-search') {
+      const value = e.target.value;
+      const pos = e.target.selectionStart;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => {
+        state.ranking.q = value;
+        state.ranking.page = 1;
+        render();
+        const input = document.getElementById('ranking-search');
+        if (input) { input.focus(); try { input.setSelectionRange(pos, pos); } catch (err) { /* ignore */ } }
+      }, 240);
+      return;
+    }
+    if (e.target.id === 'copper-player') {
+      const value = e.target.value;
+      clearTimeout(playerTimer);
+      playerTimer = setTimeout(() => {
+        state.copper.player = value.trim();
+        updateCopperPanel();
+      }, 260);
+      return;
+    }
+    const rangeKey = e.target.getAttribute('data-weight-range');
+    if (rangeKey) {
+      const num = document.querySelector('[data-weight-num="' + rangeKey + '"]');
+      if (num) num.value = e.target.value;
+      refreshWeightSum();
+      return;
+    }
+    const numKey = e.target.getAttribute('data-weight-num');
+    if (numKey) {
+      const range = document.querySelector('[data-weight-range="' + numKey + '"]');
+      if (range) range.value = e.target.value;
+      refreshWeightSum();
+    }
+  }
+
+  function onSubmit(e) {
+    if (e.target.id === 'copper-form') {
+      e.preventDefault();
+      const data = new FormData(e.target);
+      try {
+        const rec = D.addCopper({
+          player: data.get('player'),
+          coordinate: data.get('coordinate'),
+          level: data.get('level'),
+          note: data.get('note')
+        });
+        state.copper.player = String(data.get('player') || '').trim();
+        state.copper.level = Number(data.get('level')) === 10 ? 10 : 9;
+        render();
+        U.toast('报备成功，结算后扣除 ' + D.fmt(rec.deducted) + ' 战功', 'success');
+      } catch (err) {
+        U.toast(err.message || '提交失败，请重试', 'error');
+      }
+      return;
+    }
+    if (e.target.id === 'weights-form') {
+      e.preventDefault();
+      const v = weightValues();
+      const sum = v.warMerit + v.contribution + v.assist;
+      if (sum !== 100) { U.toast('三项权重之和必须为 100%，当前为 ' + sum + '%', 'error'); return; }
+      try {
+        D.setWeights(v);
+        render();
+        U.toast('活跃度权重已保存，排行已重新计算', 'success');
+      } catch (err) {
+        U.toast(err.message || '保存失败', 'error');
+      }
+    }
+  }
+
+  function setupFileInputs() {
+    const csv = document.getElementById('csv-file');
+    if (csv) {
+      csv.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        handleCSVFile(file);
+      });
+    }
+    const json = document.getElementById('json-file');
+    if (json) {
+      json.addEventListener('change', (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        readFile(file).then((text) => {
+          U.confirm({ title: '导入备份', message: '将用备份文件替换当前全部战报、权重与铜矿记录，确定继续？', confirmText: '导入备份', danger: true }).then((ok) => {
+            if (!ok) return;
+            try {
+              const res = D.importJSON(text);
+              state.date = D.latestDate();
+              state.ranking.page = 1;
+              state.admin.preview = null;
+              state.admin.success = null;
+              navigate('/dashboard');
+              U.toast('备份导入成功，共 ' + res.dates + ' 天战报', 'success');
+            } catch (err) {
+              U.toast(err.message || '备份导入失败', 'error');
+            }
+          });
+        }).catch(() => U.toast('读取备份文件失败', 'error'));
+      });
+    }
+  }
+
+  /* ---------------- 初始化 ---------------- */
+  function init() {
+    document.querySelectorAll('[data-icon]').forEach((el) => {
+      el.innerHTML = U.icon(el.getAttribute('data-icon'), 18);
+    });
+    if (!location.hash) { try { history.replaceState(null, '', '#/dashboard'); } catch (err) { location.hash = '#/dashboard'; } }
+    document.addEventListener('click', onClick);
+    document.addEventListener('change', onChange);
+    document.addEventListener('input', onInput);
+    document.addEventListener('submit', onSubmit);
+    window.addEventListener('hashchange', () => {
+      render();
+      try { window.scrollTo({ top: 0, behavior: 'auto' }); } catch (err) { /* ignore */ }
+    });
+    setupFileInputs();
+    state.date = D.latestDate();
+    render();
+    if (!D.storageAvailable()) {
+      setTimeout(() => U.toast('浏览器禁止本地存储，数据仅在本次打开有效，请及时在管理中心导出备份', 'error'), 700);
+    }
+  }
+
+  init();
+})();
+
+</script>
+</body>
+</html>
